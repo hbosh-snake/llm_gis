@@ -1,0 +1,143 @@
+{
+  "name": "llm-gis-headless-backend",
+  "version": "0.1.0",
+  "paths": {
+    "incoming": "/data/incoming",
+    "outgoing": "/data/outgoing",
+    "work": "/data/work",
+    "workspace": "/workspace"
+  },
+  "database": {
+    "engine": "postgresql+postgis",
+    "note": "DATABASE_URL takes precedence; individual PG* vars used otherwise",
+    "env": {
+      "DATABASE_URL": null,
+      "PGHOST": "db",
+      "PGPORT": "5432",
+      "PGDATABASE": "gis",
+      "PGUSER": "gis",
+      "PGPASSWORD": "gis"
+    }
+  },
+  "schema_conventions": {
+    "raw": "raw_<ingest_id>",
+    "analysis": "analysis_<ingest_id>",
+    "metadata": "meta.ingestions"
+  },
+  "ingest_id_format": "YYYYMMDDHHMMSS_<first10ofSHA256>",
+  "commands": [
+    {
+      "name": "doctor",
+      "entrypoint": "bin/doctor",
+      "description": "Check DB connectivity and print tool versions.",
+      "args": [],
+      "example": "bin/doctor"
+    },
+    {
+      "name": "stage",
+      "entrypoint": "bin/stage",
+      "description": "Hash and stage input into /data/work/staging/<ingest_id>/. Emits report JSON.",
+      "args": [
+        {"name": "input_path", "required": true, "description": "Path under /data/incoming"},
+        {"name": "--ingest-id", "required": false, "description": "Override generated ingest id"}
+      ],
+      "example": "bin/stage /data/incoming/sample.gpkg"
+    },
+    {
+      "name": "inspect",
+      "entrypoint": "bin/inspect",
+      "description": "Inspect vector or raster. Returns metadata including crs_status: ok | suspicious | missing.",
+      "args": [
+        {"name": "input_path", "required": true, "description": "Path to dataset"},
+        {"name": "--ingest-id", "required": false, "description": "Override report id"}
+      ],
+      "example": "bin/inspect /data/incoming/sample.gpkg"
+    },
+    {
+      "name": "ingest-vector",
+      "entrypoint": "bin/ingest-vector",
+      "description": "Load vector dataset into raw_<ingest_id>.<table> via ogr2ogr. Normalizes geometry (ST_MakeValid, ST_Force2D). Upserts meta.ingestions.",
+      "args": [
+        {"name": "input_path", "required": true, "description": "Path to vector dataset"},
+        {"name": "--table", "required": true, "description": "Destination table name"},
+        {"name": "--ingest-id", "required": false, "description": "Override generated ingest id"},
+        {"name": "--schema", "required": false, "description": "Override destination schema (default: raw_<ingest_id>)"},
+        {"name": "--src-crs", "required": false, "description": "Source CRS override. Required when crs_status is missing or suspicious."},
+        {"name": "--dst-crs", "required": false, "description": "Reproject to this CRS on load. Use projected CRS for metric analysis."}
+      ],
+      "example": "bin/ingest-vector /data/incoming/sample.gpkg --table roads --dst-crs EPSG:3035"
+    },
+    {
+      "name": "ingest-raster",
+      "entrypoint": "bin/ingest-raster",
+      "description": "Load raster into raw_<ingest_id>.<table> via raster2pgsql. Optionally reprojects with gdalwarp first.",
+      "args": [
+        {"name": "input_path", "required": true, "description": "Path to raster dataset"},
+        {"name": "--table", "required": true, "description": "Destination table name"},
+        {"name": "--ingest-id", "required": false, "description": "Override generated ingest id"},
+        {"name": "--schema", "required": false, "description": "Override destination schema (default: raw_<ingest_id>)"},
+        {"name": "--src-crs", "required": false, "description": "Source CRS override. Required when crs_status is missing or suspicious."},
+        {"name": "--dst-crs", "required": false, "description": "Reproject to this CRS before loading."}
+      ],
+      "example": "bin/ingest-raster /data/incoming/dem.tif --table dem --dst-crs EPSG:3035"
+    },
+    {
+      "name": "run-sql",
+      "entrypoint": "bin/run-sql",
+      "description": "Execute a SQL file with ON_ERROR_STOP=1 and search_path=analysis_<ingest_id>,raw_<ingest_id>,public.",
+      "args": [
+        {"name": "sql_path", "required": true, "description": "SQL file path (under /workspace or /data/work)"},
+        {"name": "--ingest-id", "required": true, "description": "Target ingest id — sets search_path"},
+        {"name": "--statement-timeout", "required": false, "default": "5min", "description": "Postgres statement timeout"}
+      ],
+      "example": "bin/run-sql /workspace/sql/analysis.sql --ingest-id 20260226174050_d9d4a9f8b2"
+    },
+    {
+      "name": "export",
+      "entrypoint": "bin/export",
+      "description": "Export a PostGIS table or query to GeoPackage or GeoJSON via ogr2ogr.",
+      "args": [
+        {"name": "output_path", "required": true, "description": "Output path under /data/outgoing"},
+        {"name": "--format", "required": true, "description": "gpkg or geojson"},
+        {"name": "--table", "required": false, "description": "Fully qualified table, e.g. analysis_<ingest_id>.result"},
+        {"name": "--sql", "required": false, "description": "Custom SQL query (alternative to --table)"}
+      ],
+      "note": "Provide either --table or --sql.",
+      "examples": [
+        "bin/export /data/outgoing/result.gpkg --format gpkg --table analysis_20260226174050_d9d4a9f8b2.result",
+        "bin/export /data/outgoing/result.geojson --format geojson --sql \"SELECT * FROM analysis_20260226174050_d9d4a9f8b2.result WHERE area_m2 > 1000\""
+      ]
+    },
+    {
+      "name": "list-ingestions",
+      "entrypoint": "bin/list-ingestions",
+      "description": "List all ingestions from meta.ingestions, newest first.",
+      "args": [
+        {"name": "--limit", "required": false, "default": 50, "description": "Max rows to return"}
+      ],
+      "example": "bin/list-ingestions --limit 10"
+    },
+    {
+      "name": "describe-table",
+      "entrypoint": "bin/describe-table",
+      "description": "Return column names, types, and row count for a PostGIS table.",
+      "args": [
+        {"name": "table_ref", "required": true, "description": "Fully qualified: schema.table"}
+      ],
+      "example": "bin/describe-table raw_20260307120000_abc123def4.roads"
+    }
+  ],
+  "known_behaviors": {
+    "column_names_lowercased": "ogr2ogr lowercases all attribute column names on ingest. Source field 'Name' becomes 'name'.",
+    "geometry_column": "geom",
+    "fid_column": "fid",
+    "analysis_schema_not_auto_created": "run-sql sets search_path but does not CREATE SCHEMA. Your SQL must include: CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;"
+  },
+  "safety": {
+    "incoming_is_read_only": true,
+    "crs_override_required_when_missing_or_suspicious": true,
+    "sql_runner_sets_search_path": true,
+    "sql_runner_enforces_on_error_stop": true,
+    "use_projected_crs_for_metric_analysis": true
+  }
+}
