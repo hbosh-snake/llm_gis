@@ -1,113 +1,144 @@
 # llm-gis
 
-Headless geospatial ingestion and analysis backend for an LLM coding agent.
+Headless geospatial analysis backend controlled through non-interactive CLI commands. Drop data in, run commands, get GeoPackage/GeoJSON out.
 
-## Purpose
+**What it is:** PostGIS + GDAL in Docker, driven by an AI coding agent or a human operator.
+**What it is not:** A web GIS, map renderer, or desktop GIS environment.
 
-This repository provides a deterministic, containerized GIS backend for:
-- vector and raster ingestion
-- CRS inspection and validation
-- PostGIS-native spatial SQL analysis
-- GeoPackage/GeoJSON export
-
-No GUI tooling is required.
-
-## Architecture
-
-- `db`: `postgis/postgis:17-3.5`
-- `agent`: `ghcr.io/osgeo/gdal:ubuntu-small-3.9.3` + `uv` + CLI wrappers
-- Repo-local mounted data paths:
-  - incoming (read-only): `data/incoming` -> `/data/incoming`
-  - outgoing (read/write): `data/outgoing` -> `/data/outgoing`
-  - work (read/write): `data/work` -> `/data/work`
+---
 
 ## Prerequisites
 
-- Docker with Compose
-- `uv` installed locally (for non-container local command checks only)
+- Docker and Docker Compose
 
 ## Setup
 
-1. Start services:
-
 ```bash
-docker compose up -d db
-docker compose build agent
+git clone <repo>
+cd llm-gis
+docker compose up -d --build
+bin/doctor        # verify DB connectivity and tool versions
 ```
 
-2. Validate environment:
+Data directories are created automatically on first run.
+
+---
+
+## Data paths
+
+| Host path | Container path | Access | Purpose |
+|-----------|---------------|--------|---------|
+| `data/incoming/` | `/data/incoming` | read-only | Drop raw datasets here |
+| `data/work/` | `/data/work` | read/write | Staging, logs, reports |
+| `data/outgoing/` | `/data/outgoing` | read/write | Export outputs |
+| `./` (repo root) | `/workspace` | read/write | SQL files, scripts |
+
+---
+
+## Commands
+
+All `bin/*` scripts run inside the `agent` container. All output is JSON on stdout.
+
+| Command | Description |
+|---------|-------------|
+| `bin/doctor` | Check DB connectivity and print GDAL/psql versions |
+| `bin/inspect <path>` | Inspect a dataset; returns CRS, geometry type, extent, `crs_status` |
+| `bin/stage <path>` | Hash and copy input to staging; returns an `ingest_id` |
+| `bin/ingest-vector <path> --table <name>` | Load vector data into PostGIS via `ogr2ogr` |
+| `bin/ingest-raster <path> --table <name>` | Load raster data into PostGIS via `raster2pgsql` |
+| `bin/list-ingestions [--limit N]` | List all past ingestions from `meta.ingestions`, newest first |
+| `bin/describe-table <schema.table>` | Show column names, types, and row count |
+| `bin/run-sql <file> --ingest-id <id>` | Execute a SQL file with controlled `search_path` |
+| `bin/export <path> --format gpkg\|geojson --table <schema.table>` | Export a table to file |
+
+---
+
+## Worked example
 
 ```bash
-bin/doctor
+# 1. Inspect — check CRS before ingesting
+bin/inspect data/incoming/roads.gpkg
+# Check "crs_status" in output: "ok" -> proceed; "missing"/"suspicious" -> add --src-crs
+
+# 2. Ingest — reproject to a metric CRS for spatial analysis
+bin/ingest-vector data/incoming/roads.gpkg --table roads --dst-crs EPSG:3035
+# Note the "ingest_id" in the output, e.g. "20260307120000_abc123def4"
+
+# 3. Discover column names before writing SQL
+bin/describe-table raw_20260307120000_abc123def4.roads
+
+# 4. Write analysis SQL
+cat > data/work/analysis.sql <<'SQL'
+CREATE SCHEMA IF NOT EXISTS analysis_20260307120000_abc123def4;
+
+CREATE TABLE analysis_20260307120000_abc123def4.roads_buffer AS
+SELECT fid, name, ST_Buffer(geom, 100) AS geom
+FROM roads;
+SQL
+
+# 5. Run the SQL
+bin/run-sql data/work/analysis.sql --ingest-id 20260307120000_abc123def4
+
+# 6. Verify the result was created
+bin/describe-table analysis_20260307120000_abc123def4.roads_buffer
+
+# 7. Export
+bin/export data/outgoing/roads_buffer.gpkg \
+  --format gpkg \
+  --table analysis_20260307120000_abc123def4.roads_buffer
 ```
 
-Expected: `database_ok: true` and tool versions printed.
+---
 
-## Standard workflow
+## CRS handling
 
-1. Drop data into `data/incoming`.
-2. Inspect dataset:
+`bin/inspect` returns a `crs_status` field:
 
-```bash
-bin/inspect /data/incoming/<dataset>
-```
+- `"ok"` — proceed normally
+- `"missing"` — no CRS found; add `--src-crs EPSG:XXXX` to the ingest command
+- `"suspicious"` — CRS and extent are inconsistent; add `--src-crs EPSG:XXXX` to override
 
-3. Ingest dataset:
+Use `--dst-crs` to reproject on load. For metric analyses (area, buffer, distance) always use a
+projected CRS such as EPSG:3035 (Europe LAEA) or the appropriate regional UTM zone.
 
-```bash
-# vector
-bin/ingest-vector /data/incoming/<dataset> --table <table_name> [--src-crs EPSG:XXXX] [--dst-crs EPSG:YYYY]
+---
 
-# raster
-bin/ingest-raster /data/incoming/<dataset> --table <table_name> [--src-crs EPSG:XXXX] [--dst-crs EPSG:YYYY]
-```
+## Database schemas
 
-4. Run analysis SQL:
+| Schema | Contents |
+|--------|---------|
+| `meta.ingestions` | Per-ingest metadata — status, CRS decisions, paths, timestamps |
+| `raw_<ingest_id>` | Source data loaded by ingest commands |
+| `analysis_<ingest_id>` | Derived tables created by `run-sql` |
 
-```bash
-bin/run-sql /workspace/<path-to-sql-file> --ingest-id <ingest_id>
-```
+The database initializes itself on first boot: PostGIS extension, `meta` schema, `ingestions` table.
 
-5. Export results:
+---
 
-```bash
-bin/export /data/outgoing/<result>.gpkg --format gpkg --table analysis_<ingest_id>.<table>
-bin/export /data/outgoing/<result>.geojson --format geojson --table analysis_<ingest_id>.<table>
-```
+## Key conventions
 
-## Data and schema conventions
+- **Column names are always lowercase.** `ogr2ogr` lowercases all attribute names on load. `Name` → `name`.
+- **Geometry column is `geom`, primary key is `fid`.** Always use these names in SQL.
+- **The analysis schema is not auto-created.** Your SQL must begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`.
+- **Ingest ID format:** `YYYYMMDDHHMMSS_<first10ofSHA256>` — e.g. `20260226174050_d9d4a9f8b2`.
 
-- Metadata table: `meta.ingestions`
-- Raw ingest schema: `raw_<ingest_id>`
-- Analysis schema: `analysis_<ingest_id>`
-- Logs: `data/work/logs/<ingest_id>/`
-- Reports: `data/work/reports/<ingest_id>.json`
+---
 
-## Safety rules
+## Environment variables
 
-- Inputs are read from `/data/incoming` (mounted read-only).
-- If CRS is missing or suspicious, pass `--src-crs` explicitly.
-- Use projected CRS (for example `EPSG:3035`) for metric analyses (area, buffer, distance).
-- Execute analysis through `bin/run-sql` for controlled `search_path` and failure behavior.
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PGHOST` | `db` | PostgreSQL host |
+| `PGPORT` | `5432` | PostgreSQL port |
+| `PGDATABASE` | `gis` | Database name |
+| `PGUSER` | `gis` | Database user |
+| `PGPASSWORD` | `gis` | Database password |
+| `DATABASE_URL` | _(derived)_ | Takes precedence over individual vars if set |
 
-## Key entrypoints
+---
 
-- `bin/stage`
-- `bin/inspect`
-- `bin/ingest-vector`
-- `bin/ingest-raster`
-- `bin/run-sql`
-- `bin/export`
-- `bin/doctor`
-- `scripts/smoke.sh`
+## Agent documentation
 
-## Discoverability docs for agents
-
-- `docs/llm/manifest.json`
-- `docs/llm/README.md`
-
-## Reference plan docs
-
-- `docs/plans/2026-02-26-llm-gis-design.md`
-- `docs/plans/2026-02-26-llm-gis-implementation-plan.md`
-# llm_gis
+- [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md) — capabilities and constraints for an AI agent
+- [`docs/llm/README.md`](docs/llm/README.md) — full command reference for an AI agent
+- [`docs/llm/manifest.json`](docs/llm/manifest.json) — machine-readable command manifest
