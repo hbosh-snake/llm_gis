@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: llm-gis-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gis}
+      POSTGRES_USER: ${POSTGRES_USER:-gis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gis}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gis} -d ${POSTGRES_DB:-gis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  agent:
+    build:
+      context: .
+      dockerfile: docker/agent/Dockerfile
+    container_name: llm-gis-agent
+    depends_on:
+      db:
+        condition: service_healthy
+    working_dir: /workspace
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGDATABASE: ${POSTGRES_DB:-gis}
+      PGUSER: ${POSTGRES_USER:-gis}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-gis}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gis}:${POSTGRES_PASSWORD:-gis}@db:5432/${POSTGRES_DB:-gis}
+      TMPDIR: /data/work/tmp
+      GDAL_CACHEMAX: "256"
+    volumes:
+      - ./:/workspace:rw
+      - ./data/incoming:/data/incoming:ro
+      - ./data/outgoing:/data/outgoing:rw
+      - ./data/work:/data/work:rw
+    entrypoint: ["/usr/local/bin/agent-entrypoint.sh"]
+    command: ["sleep", "infinity"]
+
+volumes:
+  pgdata:

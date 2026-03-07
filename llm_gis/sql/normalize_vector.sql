@@ -1,0 +1,5 @@
+-- Template SQL for vector geometry normalization (applied from Python with identifiers)
+-- 1) Count invalid geometries
+-- 2) Fix with ST_MakeValid
+-- 3) Force 2D
+-- 4) Recount and index

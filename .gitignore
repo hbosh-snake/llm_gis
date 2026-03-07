@@ -1,0 +1,20 @@
+# Python/uv
+.venv/
+__pycache__/
+*.pyc
+
+# Local env
+.env
+
+# Data mounts (keep directory placeholders only)
+data/**
+!data/incoming/
+!data/incoming/.keep
+!data/outgoing/
+!data/outgoing/.keep
+!data/work/
+!data/work/.keep
+
+# Worktree directories
+.worktrees/
+worktrees/
