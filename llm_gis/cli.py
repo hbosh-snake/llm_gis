@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import functools
 import json
+import sys
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import typer
 
 from llm_gis.describe import describe_table
 from llm_gis.doctor import doctor_report
+from llm_gis.errors import GisError
 from llm_gis.exporter import export_result
 from llm_gis.ingest_raster import ingest_raster
 from llm_gis.ingest_vector import ingest_vector
@@ -17,8 +21,25 @@ from llm_gis.stage import stage_input
 
 app = typer.Typer(help="Headless LLM GIS command entrypoints")
 
+F = TypeVar("F", bound=Callable[..., None])
+
+
+def handle_errors(func: F) -> F:
+    """Render a GisError as JSON on stderr and exit 1, leaving usage errors to typer."""
+
+    @functools.wraps(func)
+    def wrapper(*args: object, **kwargs: object) -> None:
+        try:
+            func(*args, **kwargs)
+        except GisError as error:
+            print(json.dumps(error.to_dict(), indent=2, sort_keys=True), file=sys.stderr)
+            raise typer.Exit(code=1)
+
+    return wrapper  # type: ignore[return-value]
+
 
 @app.command("stage")
+@handle_errors
 def stage_cmd(
     input_path: Path = typer.Argument(..., help="Path under /data/incoming"),
     ingest_id: str | None = typer.Option(None, help="Optional ingest id"),
@@ -27,6 +48,7 @@ def stage_cmd(
 
 
 @app.command("inspect")
+@handle_errors
 def inspect_cmd(
     input_path: Path = typer.Argument(..., help="Path to vector/raster input"),
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
@@ -35,6 +57,7 @@ def inspect_cmd(
 
 
 @app.command("ingest-vector")
+@handle_errors
 def ingest_vector_cmd(
     input_path: Path = typer.Argument(..., help="Path to vector dataset"),
     table: str = typer.Option(..., "--table", help="Destination table name"),
@@ -48,6 +71,7 @@ def ingest_vector_cmd(
 
 
 @app.command("ingest-raster")
+@handle_errors
 def ingest_raster_cmd(
     input_path: Path = typer.Argument(..., help="Path to raster dataset"),
     table: str = typer.Option(..., "--table", help="Destination table name"),
@@ -61,6 +85,7 @@ def ingest_raster_cmd(
 
 
 @app.command("run-sql")
+@handle_errors
 def run_sql_cmd(
     sql_path: Path = typer.Argument(..., help="SQL file path"),
     ingest_id: str = typer.Option(..., "--ingest-id", help="Target ingest id for search_path"),
@@ -70,6 +95,7 @@ def run_sql_cmd(
 
 
 @app.command("export")
+@handle_errors
 def export_cmd(
     output_path: Path = typer.Argument(..., help="Output path under /data/outgoing"),
     output_format: str = typer.Option(..., "--format", help="gpkg or geojson"),
@@ -86,11 +112,13 @@ def export_cmd(
 
 
 @app.command("doctor")
+@handle_errors
 def doctor_cmd() -> None:
     typer.echo(json.dumps(doctor_report(), indent=2, sort_keys=True))
 
 
 @app.command("list-ingestions")
+@handle_errors
 def list_ingestions_cmd(
     limit: int = typer.Option(50, help="Maximum rows to return"),
 ) -> None:
@@ -98,6 +126,7 @@ def list_ingestions_cmd(
 
 
 @app.command("describe-table")
+@handle_errors
 def describe_table_cmd(
     table_ref: str = typer.Argument(..., help="Fully qualified table: schema.table"),
 ) -> None:
