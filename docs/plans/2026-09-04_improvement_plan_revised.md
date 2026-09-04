@@ -103,6 +103,26 @@ concrete demand from a real job.
 
 Each phase ends with something usable. Phases are ordered; within a phase, steps are.
 
+**Every phase ends with a field test before it counts as done.** A field test is a
+real job run end to end through the `bin/*` commands, as the operator described in
+`CLAUDE.md`, on real data rather than fixtures. Passing tests and green CI prove the
+code runs; only a field test shows whether the workflow holds for someone trying to
+get work done. Findings go in `docs/reports/` and feed the next phase.
+
+Phase 0's field test ran the activation KML through inspect, stage, ingest, SQL and
+export. The chain worked and the numbers verified, and it surfaced four things the
+suite could not: stage and ingest write to the same report path so staging
+provenance is overwritten; no step reports what it produced, so a caller cannot tell
+a step worked without re-inspecting; absent JSON keys return null rather than
+erroring, which reads identically to a genuine null; and the job it was meant to do
+needs STAC and windowed COG access, which do not exist yet. The first three are
+Phase 1 and Phase 3 work; the fourth is the wall this plan exists to remove.
+
+Two operational notes from that run. `docker compose down -v` destroys the `pgdata`
+volume along with everything else: remove a single named volume by name instead.
+And `CLAUDE.md` describes archiving sources to `data/archive/`, but no such directory
+exists or is mounted, so the archive step has nowhere to write.
+
 ### Phase 0 — Regression baseline
 
 **Why:** nothing below is safe to attempt without it.
