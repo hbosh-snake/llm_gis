@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from pyproj import CRS
+from pyproj.exceptions import CRSError
 
 
 def utc_now() -> str:
@@ -117,35 +119,43 @@ def db_connect() -> psycopg.Connection:
     return psycopg.connect(pg_dsn())
 
 
-def parse_epsg(value: str | None) -> int | None:
+def parse_crs(value: str | None) -> CRS | None:
+    """Parse an EPSG code, WKT or PROJ string. None if absent or unparseable."""
     if not value:
         return None
-    match = re.search(r"EPSG[:=](\d+)", value.upper())
-    if match:
-        return int(match.group(1))
-    return None
+    try:
+        return CRS.from_user_input(value)
+    except CRSError:
+        return None
+
+
+def parse_epsg(value: str | None) -> int | None:
+    crs = parse_crs(value)
+    return crs.to_epsg() if crs else None
 
 
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:
-    reasons: list[str] = []
+    """Classify a CRS as ok, missing or suspicious given the dataset extent."""
     if not crs_text:
         return "missing", ["No CRS detected"]
+
+    crs = parse_crs(crs_text)
+    if crs is None:
+        return "suspicious", ["CRS could not be parsed"]
     if extent is None:
-        return "ok", reasons
+        return "ok", []
 
-    minx = extent.get("minx")
-    maxx = extent.get("maxx")
-    miny = extent.get("miny")
-    maxy = extent.get("maxy")
-
-    crs_upper = crs_text.upper()
-    epsg = parse_epsg(crs_text)
-    if epsg == 4326:
-        if any(abs(v) > 180 for v in [minx or 0.0, maxx or 0.0]) or any(abs(v) > 90 for v in [miny or 0.0, maxy or 0.0]):
-            reasons.append("Extent exceeds lon/lat ranges for EPSG:4326")
-    if epsg == 3857 or (epsg is not None and 32600 <= epsg <= 32799) or any(token in crs_upper for token in ["UTM", "METER", "METRE"]):
-        if all(-180 <= v <= 180 for v in [minx or 0.0, maxx or 0.0]) and all(-90 <= v <= 90 for v in [miny or 0.0, maxy or 0.0]):
-            reasons.append("Projected CRS appears to have lon/lat-like extent")
+    reasons: list[str] = []
+    lon_lat_like = (
+        -180 <= extent["minx"] <= 180
+        and -180 <= extent["maxx"] <= 180
+        and -90 <= extent["miny"] <= 90
+        and -90 <= extent["maxy"] <= 90
+    )
+    if crs.is_geographic and not lon_lat_like:
+        reasons.append("Geographic CRS but extent exceeds lon/lat ranges")
+    if crs.is_projected and lon_lat_like:
+        reasons.append("Projected CRS appears to have lon/lat-like extent")
 
     return ("suspicious", reasons) if reasons else ("ok", reasons)
 

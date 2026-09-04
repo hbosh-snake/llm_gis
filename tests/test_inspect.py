@@ -32,12 +32,7 @@ def test_inspect_raster_fixture():
     assert report["dataset_kind"] == "raster"
     assert len(report["bands"]) == 1
     assert report["bands"][0]["nodata"] == -9999.0
-    # crs_status is "suspicious" here, not "ok": inspect_dataset's raster path
-    # passes the full WKT to crs_status (no EPSG code extraction, unlike the
-    # vector path), and crs_status's projected-CRS heuristic matches the
-    # substring "METRE" in the WKT's ellipsoid LENGTHUNIT, which is present
-    # in effectively every CRS including geographic ones. See report.
-    assert report["crs_status"] == "suspicious"
+    assert report["crs_status"] == "ok"
     assert report["size"] == [20, 20]
 
 
