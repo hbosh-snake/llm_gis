@@ -6,7 +6,8 @@ from typer.testing import CliRunner
 
 from llm_gis.cli import app
 from llm_gis.common import ensure_child_path, run_command
-from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, GisError
+from llm_gis.describe import describe_table
+from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, TABLE_NOT_FOUND, GisError
 from llm_gis.inspect import inspect_dataset
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -59,3 +60,11 @@ def test_cli_bad_path_exits_one_with_json_error_on_stderr():
     assert result.stdout == ""
     payload = json.loads(result.stderr)
     assert payload["code"] == INPUT_NOT_FOUND
+
+
+@pytest.mark.live
+def test_describe_table_raises_for_a_missing_table():
+    """An absent table must not read as an existing empty one."""
+    with pytest.raises(GisError) as caught:
+        describe_table("raw_does_not_exist", "nothing")
+    assert caught.value.code == TABLE_NOT_FOUND
