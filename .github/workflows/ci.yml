@@ -22,8 +22,12 @@ jobs:
           docker compose up -d db
           bin/test -m live
 
+      # Runners are uid 1001, so this fails if the container ever reverts to
+      # running as root or to a hardcoded uid. Goes through bin/_env.sh, the
+      # same path the bin/* wrappers use.
       - name: Output must be owned by the caller, never root
         run: |
-          docker compose run --rm agent bash -lc 'touch /data/outgoing/_ci_uid_check'
-          test "$(stat -c '%U' data/outgoing/_ci_uid_check)" = "$(id -un)"
+          source bin/_env.sh
+          docker compose run --rm agent touch /data/outgoing/_ci_uid_check
+          test "$(stat -c '%u' data/outgoing/_ci_uid_check)" = "$(id -u)"
           rm -f data/outgoing/_ci_uid_check
