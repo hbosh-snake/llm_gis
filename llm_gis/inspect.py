@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, work_root, write_json
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
 def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
@@ -51,7 +52,11 @@ def _extract_raster_extent(payload: dict[str, Any]) -> dict[str, float] | None:
 def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str, Any]:
     ensure_workspace_dirs()
     if not input_path.exists():
-        raise FileNotFoundError(input_path)
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"Input path does not exist: {input_path}",
+            "Check the path and try again",
+        )
 
     vector_out: dict[str, Any] | None = None
     raster_out: dict[str, Any] | None = None

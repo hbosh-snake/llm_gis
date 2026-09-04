@@ -13,6 +13,7 @@ from llm_gis.common import (
     utc_now,
     write_json,
 )
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
 WORK_ROOT = Path("/data/work")
@@ -21,7 +22,11 @@ WORK_ROOT = Path("/data/work")
 def stage_input(input_path: Path, ingest_id: str | None = None) -> dict:
     ensure_workspace_dirs()
     if not input_path.exists():
-        raise FileNotFoundError(input_path)
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"Input path does not exist: {input_path}",
+            "Check the path and that it is under data/incoming",
+        )
     ensure_child_path(input_path, incoming_root())
 
     input_hash = sha256_for_path(input_path)

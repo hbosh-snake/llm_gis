@@ -15,6 +15,8 @@ import psycopg
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
+from llm_gis.errors import COMMAND_FAILED, PATH_OUTSIDE_ROOT, GisError
+
 
 def utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -62,7 +64,11 @@ def ensure_child_path(path: Path, root: Path) -> None:
     resolved = path.resolve()
     resolved_root = root.resolve()
     if resolved != resolved_root and resolved_root not in resolved.parents:
-        raise ValueError(f"Path {path} is outside allowed root {root}")
+        raise GisError(
+            PATH_OUTSIDE_ROOT,
+            f"Path {path} is outside allowed root {root}",
+            f"Use a path under {root}",
+        )
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -88,9 +94,16 @@ def run_command(
     )
     if completed.returncode != 0:
         command = args if isinstance(args, str) else " ".join(shlex.quote(arg) for arg in args)
-        raise RuntimeError(
-            f"Command failed ({completed.returncode}): {command}\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+        error = GisError(
+            COMMAND_FAILED,
+            f"Command failed ({completed.returncode}): {command}",
+            "Inspect stderr on the exception and correct the command or its input",
         )
+        error.argv = args
+        error.returncode = completed.returncode
+        error.stdout = completed.stdout
+        error.stderr = completed.stderr
+        raise error
     return completed.stdout
 
 

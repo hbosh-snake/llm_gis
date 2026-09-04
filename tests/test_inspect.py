@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 from llm_gis.inspect import inspect_dataset
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -37,5 +38,6 @@ def test_inspect_raster_fixture():
 
 
 def test_inspect_missing_path_raises():
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(GisError) as excinfo:
         inspect_dataset(FIXTURES / "does-not-exist.gpkg")
+    assert excinfo.value.code == INPUT_NOT_FOUND

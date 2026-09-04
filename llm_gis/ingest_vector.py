@@ -16,6 +16,7 @@ from llm_gis.common import (
     utc_now,
     write_json,
 )
+from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, GisError
 from llm_gis.inspect import inspect_dataset
 
 
@@ -71,7 +72,12 @@ def ingest_vector(
     crs_status = inspect_report.get("crs_status")
     detected_crs = inspect_report.get("detected_crs")
     if crs_status in {"missing", "suspicious"} and not src_crs:
-        raise RuntimeError("Vector ingestion refused: CRS missing or suspicious; provide --src-crs")
+        code = CRS_MISSING if crs_status == "missing" else CRS_SUSPICIOUS
+        raise GisError(
+            code,
+            f"Vector ingestion refused: CRS is {crs_status} for {input_path}",
+            "Provide --src-crs with the dataset's true CRS and retry",
+        )
     chosen_crs = dst_crs or src_crs or detected_crs
 
     ogr_cmd = _ogr_command(

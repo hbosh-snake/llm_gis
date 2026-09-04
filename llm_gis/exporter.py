@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from llm_gis.common import ensure_workspace_dirs, pg_gdal_dsn, run_command
+from llm_gis.errors import MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
 
 
 def export_result(
@@ -16,7 +17,11 @@ def export_result(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not table and not sql_query:
-        raise ValueError("Provide either table or sql_query")
+        raise GisError(
+            MISSING_ARGUMENT,
+            "Export requires either a table or a SQL query",
+            "Pass --table or --sql",
+        )
 
     fmt = output_format.lower()
     if fmt == "gpkg":
@@ -24,7 +29,11 @@ def export_result(
     elif fmt == "geojson":
         gdal_format = "GeoJSON"
     else:
-        raise ValueError("output_format must be gpkg or geojson")
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"Unsupported export format: {output_format}",
+            "Use --format gpkg or --format geojson",
+        )
 
     cmd = ["ogr2ogr", "-f", gdal_format, str(output_path), pg_gdal_dsn()]
     if sql_query:

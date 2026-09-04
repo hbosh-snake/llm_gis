@@ -18,6 +18,7 @@ from llm_gis.common import (
     utc_now,
     write_json,
 )
+from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, GisError
 from llm_gis.inspect import inspect_dataset
 
 
@@ -42,7 +43,12 @@ def ingest_raster(
     crs_status = inspect_report.get("crs_status")
     detected_crs = inspect_report.get("detected_crs")
     if crs_status in {"missing", "suspicious"} and not src_crs:
-        raise RuntimeError("Raster ingestion refused: CRS missing or suspicious; provide --src-crs")
+        code = CRS_MISSING if crs_status == "missing" else CRS_SUSPICIOUS
+        raise GisError(
+            code,
+            f"Raster ingestion refused: CRS is {crs_status} for {input_path}",
+            "Provide --src-crs with the dataset's true CRS and retry",
+        )
 
     raster_input = input_path
     if dst_crs:
