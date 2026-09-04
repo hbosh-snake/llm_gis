@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from llm_gis.common import ensure_workspace_dirs, run_command, sanitize_identifier, utc_now
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
 WORK_ROOT = Path("/data/work")
@@ -12,7 +13,11 @@ WORK_ROOT = Path("/data/work")
 def run_sql_file(sql_path: Path, ingest_id: str, statement_timeout: str = "5min") -> dict:
     ensure_workspace_dirs()
     if not sql_path.exists():
-        raise FileNotFoundError(sql_path)
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"SQL file does not exist: {sql_path}",
+            "Check the path; SQL files are read from inside the container, usually under /data/work",
+        )
 
     sid = sanitize_identifier(ingest_id)
     sql_text = sql_path.read_text(encoding="utf-8")
