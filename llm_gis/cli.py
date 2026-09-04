@@ -29,6 +29,12 @@ def _fail(error: GisError) -> None:
     raise typer.Exit(code=1)
 
 
+def _emit(command: str, result: dict) -> None:
+    """Print a success result with the stable status/command envelope."""
+    envelope = {**result, "status": "ok", "command": command}
+    typer.echo(json.dumps(envelope, indent=2, sort_keys=True))
+
+
 def handle_errors(func: F) -> F:
     """Render a GisError as JSON on stderr and exit 1, leaving usage errors to typer."""
 
@@ -58,7 +64,7 @@ def stage_cmd(
     input_path: Path = typer.Argument(..., help="Path under /data/incoming"),
     ingest_id: str | None = typer.Option(None, help="Optional ingest id"),
 ) -> None:
-    typer.echo(json.dumps(stage_input(input_path, ingest_id=ingest_id), indent=2, sort_keys=True))
+    _emit("stage", stage_input(input_path, ingest_id=ingest_id))
 
 
 @app.command("inspect")
@@ -67,7 +73,7 @@ def inspect_cmd(
     input_path: Path = typer.Argument(..., help="Path to vector/raster input"),
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
 ) -> None:
-    typer.echo(json.dumps(inspect_dataset(input_path, ingest_id=ingest_id), indent=2, sort_keys=True))
+    _emit("inspect", inspect_dataset(input_path, ingest_id=ingest_id))
 
 
 @app.command("ingest-vector")
@@ -81,7 +87,7 @@ def ingest_vector_cmd(
     dst_crs: str | None = typer.Option(None, "--dst-crs", help="Destination CRS (reproject on load)"),
 ) -> None:
     result = ingest_vector(input_path, table=table, ingest_id=ingest_id, src_crs=src_crs, dst_crs=dst_crs, schema=schema)
-    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    _emit("ingest-vector", result)
 
 
 @app.command("ingest-raster")
@@ -95,7 +101,7 @@ def ingest_raster_cmd(
     dst_crs: str | None = typer.Option(None, "--dst-crs", help="Destination CRS (reproject before load)"),
 ) -> None:
     result = ingest_raster(input_path, table=table, ingest_id=ingest_id, src_crs=src_crs, dst_crs=dst_crs, schema=schema)
-    typer.echo(json.dumps(result, indent=2, sort_keys=True))
+    _emit("ingest-raster", result)
 
 
 @app.command("run-sql")
@@ -105,7 +111,7 @@ def run_sql_cmd(
     ingest_id: str = typer.Option(..., "--ingest-id", help="Target ingest id for search_path"),
     statement_timeout: str = typer.Option("5min", help="Postgres statement timeout"),
 ) -> None:
-    typer.echo(json.dumps(run_sql_file(sql_path, ingest_id=ingest_id, statement_timeout=statement_timeout), indent=2, sort_keys=True))
+    _emit("run-sql", run_sql_file(sql_path, ingest_id=ingest_id, statement_timeout=statement_timeout))
 
 
 @app.command("export")
@@ -116,19 +122,13 @@ def export_cmd(
     table: str | None = typer.Option(None, help="Table name like analysis_...result"),
     sql_query: str | None = typer.Option(None, "--sql", help="Custom SQL query"),
 ) -> None:
-    typer.echo(
-        json.dumps(
-            export_result(output_path, output_format, table=table, sql_query=sql_query),
-            indent=2,
-            sort_keys=True,
-        )
-    )
+    _emit("export", export_result(output_path, output_format, table=table, sql_query=sql_query))
 
 
 @app.command("doctor")
 @handle_errors
 def doctor_cmd() -> None:
-    typer.echo(json.dumps(doctor_report(), indent=2, sort_keys=True))
+    _emit("doctor", doctor_report())
 
 
 @app.command("list-ingestions")
@@ -136,7 +136,7 @@ def doctor_cmd() -> None:
 def list_ingestions_cmd(
     limit: int = typer.Option(50, help="Maximum rows to return"),
 ) -> None:
-    typer.echo(json.dumps(list_ingestions(limit=limit), indent=2, sort_keys=True))
+    _emit("list-ingestions", list_ingestions(limit=limit))
 
 
 @app.command("describe-table")
@@ -148,7 +148,7 @@ def describe_table_cmd(
     if "." not in table_ref:
         raise typer.BadParameter("table_ref must be schema.table, e.g. raw_<ingest_id>.roads")
     schema, table = table_ref.split(".", 1)
-    typer.echo(json.dumps(describe_table(schema, table), indent=2, sort_keys=True))
+    _emit("describe-table", describe_table(schema, table))
 
 
 def main() -> None:
