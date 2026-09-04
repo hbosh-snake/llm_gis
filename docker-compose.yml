@@ -24,6 +24,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Run as the invoking user so files written to the bind mounts are owned
+    # by them, not root. Defaults suit the common single-user Linux case.
+    user: "${LLM_GIS_UID:-1000}:${LLM_GIS_GID:-1000}"
     working_dir: /workspace
     environment:
       PGHOST: db

@@ -10,8 +10,12 @@ RUN apt-get update \
       jq \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# The container runs as the invoking user, so the venv must be writable by
+# any uid. UV_PROJECT_ENVIRONMENT points here from docker-compose.yml.
+RUN mkdir -p /opt/uv-venv && chmod 777 /opt/uv-venv
+ENV UV_LINK_MODE=copy
 
 COPY docker/agent/entrypoint.sh /usr/local/bin/agent-entrypoint.sh
 RUN chmod +x /usr/local/bin/agent-entrypoint.sh
