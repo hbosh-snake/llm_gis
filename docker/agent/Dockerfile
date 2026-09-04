@@ -1,4 +1,4 @@
-FROM ghcr.io/osgeo/gdal:ubuntu-small-3.9.3
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.12.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 
