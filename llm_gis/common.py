@@ -150,9 +150,15 @@ def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[s
     return ("suspicious", reasons) if reasons else ("ok", reasons)
 
 
+def work_root() -> Path:
+    """Workspace root, overridable for host-side testing."""
+    return Path(os.getenv("LLM_GIS_WORK_ROOT", "/data/work"))
+
+
 def ensure_workspace_dirs() -> None:
-    for path in [Path("/data/work/tmp"), Path("/data/work/logs"), Path("/data/work/reports"), Path("/data/work/staging")]:
-        path.mkdir(parents=True, exist_ok=True)
+    root = work_root()
+    for name in ["tmp", "logs", "reports", "staging"]:
+        (root / name).mkdir(parents=True, exist_ok=True)
 
 
 def safe_remove_dir(path: Path) -> None:
