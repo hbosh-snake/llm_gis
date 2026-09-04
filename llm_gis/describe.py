@@ -22,6 +22,14 @@ def describe_table(schema: str, table: str) -> dict:
             columns = [dict(zip(cols, row)) for row in cur.fetchall()]
 
             if not columns:
+                cur.execute("SELECT to_regclass(%s);", (f"{schema}.{table}",))
+                exists = cur.fetchone()[0] is not None
+                if exists:
+                    raise GisError(
+                        TABLE_NOT_FOUND,
+                        f"Table {schema}.{table} exists but no columns are visible to this role",
+                        "Grant SELECT on the table to the connecting role",
+                    )
                 raise GisError(
                     TABLE_NOT_FOUND,
                     f"Table {schema}.{table} does not exist",

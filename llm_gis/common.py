@@ -94,16 +94,18 @@ def run_command(
     )
     if completed.returncode != 0:
         command = args if isinstance(args, str) else " ".join(shlex.quote(arg) for arg in args)
-        error = GisError(
+        redacted = re.sub(r"password=\S+", "password=***", command)
+        raise GisError(
             COMMAND_FAILED,
-            f"Command failed ({completed.returncode}): {command}",
-            "Inspect stderr on the exception and correct the command or its input",
+            f"Command failed with exit {completed.returncode}: {redacted}",
+            "Read details.stderr for the underlying tool diagnostic",
+            {
+                "command": redacted,
+                "returncode": completed.returncode,
+                "stderr": completed.stderr[-2000:],
+                "stdout": completed.stdout[-2000:],
+            },
         )
-        error.argv = args
-        error.returncode = completed.returncode
-        error.stdout = completed.stdout
-        error.stderr = completed.stderr
-        raise error
     return completed.stdout
 
 

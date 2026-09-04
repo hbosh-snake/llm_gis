@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, work_root, write_json
+from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
 from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
@@ -72,7 +73,11 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         raster_out = None
 
     if not vector_out and not raster_out:
-        raise RuntimeError(f"Could not inspect dataset {input_path} as vector or raster")
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"Neither ogrinfo nor gdalinfo could read {input_path}",
+            "Confirm the file is a GDAL-readable vector or raster; for a sidecar format ensure companion files are present",
+        )
 
     if vector_out:
         extent = _extract_vector_extent(vector_out)

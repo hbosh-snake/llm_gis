@@ -10,7 +10,7 @@ import typer
 
 from llm_gis.describe import describe_table
 from llm_gis.doctor import doctor_report
-from llm_gis.errors import GisError
+from llm_gis.errors import UNEXPECTED, GisError
 from llm_gis.exporter import export_result
 from llm_gis.ingest_raster import ingest_raster
 from llm_gis.ingest_vector import ingest_vector
@@ -24,6 +24,11 @@ app = typer.Typer(help="Headless LLM GIS command entrypoints")
 F = TypeVar("F", bound=Callable[..., None])
 
 
+def _fail(error: GisError) -> None:
+    print(json.dumps(error.to_dict(), indent=2, sort_keys=True), file=sys.stderr)
+    raise typer.Exit(code=1)
+
+
 def handle_errors(func: F) -> F:
     """Render a GisError as JSON on stderr and exit 1, leaving usage errors to typer."""
 
@@ -32,8 +37,17 @@ def handle_errors(func: F) -> F:
         try:
             func(*args, **kwargs)
         except GisError as error:
-            print(json.dumps(error.to_dict(), indent=2, sort_keys=True), file=sys.stderr)
-            raise typer.Exit(code=1)
+            _fail(error)
+        except typer.Exit:
+            raise
+        except Exception as error:
+            _fail(
+                GisError(
+                    UNEXPECTED,
+                    f"{type(error).__name__}: {error}",
+                    "This is an unhandled failure; report it with the command that produced it",
+                )
+            )
 
     return wrapper  # type: ignore[return-value]
 

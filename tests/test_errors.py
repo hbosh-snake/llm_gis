@@ -7,7 +7,14 @@ from typer.testing import CliRunner
 from llm_gis.cli import app
 from llm_gis.common import ensure_child_path, run_command
 from llm_gis.describe import describe_table
-from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, TABLE_NOT_FOUND, GisError
+from llm_gis.errors import (
+    COMMAND_FAILED,
+    INPUT_NOT_FOUND,
+    PATH_OUTSIDE_ROOT,
+    TABLE_NOT_FOUND,
+    UNEXPECTED,
+    GisError,
+)
 from llm_gis.inspect import inspect_dataset
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -43,7 +50,8 @@ def test_run_command_failure_raises_gis_error_with_stderr():
         run_command(["ls", "/no/such/path/at/all"])
     error = excinfo.value
     assert error.code == COMMAND_FAILED
-    assert error.stderr
+    assert error.details["stderr"]
+    assert error.to_dict()["details"]["stderr"], "stderr must survive into the JSON the caller sees"
 
 
 def test_inspect_dataset_missing_path_raises_input_not_found():
@@ -68,3 +76,22 @@ def test_describe_table_raises_for_a_missing_table():
     with pytest.raises(GisError) as caught:
         describe_table("raw_does_not_exist", "nothing")
     assert caught.value.code == TABLE_NOT_FOUND
+
+
+def test_unexpected_exceptions_are_still_json(tmp_path):
+    """Nothing may reach the caller as a traceback."""
+    sql = tmp_path / "probe.sql"
+    sql.write_text("SELECT 1;", encoding="utf-8")
+    result = CliRunner().invoke(app, ["run-sql", str(sql), "--ingest-id", "---"])
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert json.loads(result.stderr)["code"] == UNEXPECTED
+
+
+def test_command_failure_redacts_the_password(monkeypatch):
+    """The DSN reaches machine-readable output, so the password must not."""
+    with pytest.raises(GisError) as caught:
+        run_command(["false", "PG:host=db password=hunter2"])
+    payload = json.dumps(caught.value.to_dict())
+    assert "hunter2" not in payload
+    assert "password=***" in payload

@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/_env.sh"
-docker compose --progress quiet run --rm agent uv run llm-gis describe-table "$@"
+docker compose --progress quiet run --rm agent uv run --quiet llm-gis describe-table "$@"
