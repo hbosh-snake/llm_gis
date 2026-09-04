@@ -38,3 +38,16 @@ def test_inspect_with_ingest_id_still_carries_the_envelope():
     )
     assert payload["status"] == "ok"
     assert payload["command"] == "inspect"
+
+
+def test_output_schema_lists_every_bin_command():
+    """OUTPUT_SCHEMA.md must not silently drift from the commands that exist."""
+    bin_dir = Path(__file__).parent.parent / "bin"
+    excluded = {"test", "_env.sh"}
+    commands = sorted(p.name for p in bin_dir.iterdir() if p.name not in excluded)
+
+    schema_text = (Path(__file__).parent.parent / "docs" / "llm" / "OUTPUT_SCHEMA.md").read_text(
+        encoding="utf-8"
+    )
+    for command in commands:
+        assert f"bin/{command}" in schema_text, f"OUTPUT_SCHEMA.md is missing {command}"
