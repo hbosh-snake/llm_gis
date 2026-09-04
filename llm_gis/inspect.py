@@ -4,10 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, write_json
-
-
-WORK_ROOT = Path("/data/work")
+from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, work_root, write_json
 
 
 def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
@@ -124,5 +121,5 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         }
 
     if ingest_id:
-        write_json(WORK_ROOT / "reports" / f"{ingest_id}.json", report)
+        write_json(work_root() / "reports" / f"{ingest_id}.json", report)
     return report

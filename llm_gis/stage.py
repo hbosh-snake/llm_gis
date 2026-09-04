@@ -6,6 +6,7 @@ from pathlib import Path
 
 from llm_gis.common import (
     ensure_child_path,
+    incoming_root,
     ensure_workspace_dirs,
     make_ingest_id,
     sha256_for_path,
@@ -14,7 +15,6 @@ from llm_gis.common import (
 )
 
 
-INCOMING_ROOT = Path("/data/incoming")
 WORK_ROOT = Path("/data/work")
 
 
@@ -22,7 +22,7 @@ def stage_input(input_path: Path, ingest_id: str | None = None) -> dict:
     ensure_workspace_dirs()
     if not input_path.exists():
         raise FileNotFoundError(input_path)
-    ensure_child_path(input_path, INCOMING_ROOT)
+    ensure_child_path(input_path, incoming_root())
 
     input_hash = sha256_for_path(input_path)
     resolved_ingest_id = ingest_id or make_ingest_id(input_hash)

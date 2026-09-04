@@ -26,7 +26,7 @@
 
 - [ ] **Step 1: Create CLAUDE.md**
 
-Create `/home/ema/Projects/llm-gis/CLAUDE.md` with this exact content:
+Create ``CLAUDE.md` at the repo root` with this exact content:
 
 ```markdown
 # llm-gis
