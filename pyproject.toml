@@ -17,3 +17,13 @@ llm-gis = "llm_gis.cli:main"
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: requires the docker compose stack or network access"]
+addopts = "-m 'not live'"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
