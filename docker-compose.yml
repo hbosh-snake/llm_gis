@@ -33,14 +33,19 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-gis}
       DATABASE_URL: postgresql://${POSTGRES_USER:-gis}:${POSTGRES_PASSWORD:-gis}@db:5432/${POSTGRES_DB:-gis}
       TMPDIR: /data/work/tmp
+      # Keep the container venv off the bind-mounted host .venv: the container
+      # runs as root, so a shared venv leaves root-owned files on the host.
+      UV_PROJECT_ENVIRONMENT: /opt/uv-venv
       GDAL_CACHEMAX: "256"
     volumes:
       - ./:/workspace:rw
       - ./data/incoming:/data/incoming:ro
       - ./data/outgoing:/data/outgoing:rw
       - ./data/work:/data/work:rw
+      - agentvenv:/opt/uv-venv
     entrypoint: ["/usr/local/bin/agent-entrypoint.sh"]
     command: ["sleep", "infinity"]
 
 volumes:
   pgdata:
+  agentvenv:
