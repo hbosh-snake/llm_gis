@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the agent image
+        run: docker compose build agent
+
+      - name: Offline suite
+        run: bin/test
+
+      - name: Live suite against PostGIS
+        run: |
+          docker compose up -d db
+          bin/test -m live
+
+      - name: Output must be owned by the caller, never root
+        run: |
+          docker compose run --rm agent bash -lc 'touch /data/outgoing/_ci_uid_check'
+          test "$(stat -c '%U' data/outgoing/_ci_uid_check)" = "$(id -un)"
+          rm -f data/outgoing/_ci_uid_check

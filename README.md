@@ -19,11 +19,15 @@ This project is not:
 
 Before you start, make sure you have:
 - Docker
-- Docker Compose
+- Docker Compose v2
+- Bash (Linux, macOS, or WSL on Windows)
 
 You do not need to install PostgreSQL, PostGIS, GDAL, or Python on your machine. Docker provides the working environment.
 
 Run all commands in this README from the repo root directory unless noted otherwise.
+
+The `bin/*` commands run the container as your own user, so files written to
+`data/outgoing/` and `data/work/` belong to you rather than to root.
 
 ## Project Folders
 
@@ -297,6 +301,35 @@ Check:
 - you used the right `ingest_id`
 - you created `analysis_<ingest_id>` in your SQL file
 - you confirmed the raw table name with `bin/describe-table`
+
+## Running The Tests
+
+```bash
+bin/test              # offline suite, no database needed
+bin/test -m live      # full workflow against PostGIS; needs `docker compose up -d db`
+```
+
+`bin/test` is the supported way to run the suite: it uses the same GDAL the
+workflow uses. The offline tests also run directly on the host with
+`uv run pytest`, which is faster but needs `uv` plus the GDAL command line
+tools (`ogrinfo`, `gdalinfo`) installed locally. A host GDAL of a different
+version than the container's can report slightly different metadata, so
+`bin/test` is the one that counts.
+
+## Keeping Dependencies Current
+
+Dependabot opens weekly pull requests for Python packages, the GDAL base
+image, and GitHub Actions, configured in `.github/dependabot.yml`. Security
+fixes are grouped separately from routine version bumps so they can be merged
+on their own. Every pull request runs the full suite in CI, including a check
+that container output is not owned by root.
+
+To upgrade everything by hand:
+
+```bash
+uv lock --upgrade && uv sync
+bin/test && bin/test -m live
+```
 
 ## Where To Find More Technical Detail
 
