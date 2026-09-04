@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_gis.common import (
+    normalize_crs,
     crs_status,
     crs_text_from_ogr_coordinate_system,
     ensure_workspace_dirs,
@@ -92,7 +93,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         first_layer = (vector_out.get("layers") or [{}])[0]
         field = (first_layer.get("geometryFields") or [{}])[0]
         coordinate_system = field.get("coordinateSystem") or {}
-        crs_text = crs_text_from_ogr_coordinate_system(coordinate_system)
+        crs_text = normalize_crs(crs_text_from_ogr_coordinate_system(coordinate_system))
         status, reasons = crs_status(crs_text, extent)
         report = {
             "dataset_kind": "vector",
@@ -114,7 +115,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         }
     else:
         extent = _extract_raster_extent(raster_out or {})
-        crs_text = (raster_out or {}).get("coordinateSystem", {}).get("wkt")
+        crs_text = normalize_crs((raster_out or {}).get("coordinateSystem", {}).get("wkt"))
         status, reasons = crs_status(crs_text, extent)
         report = {
             "dataset_kind": "raster",

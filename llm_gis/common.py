@@ -169,6 +169,12 @@ def crs_text_from_ogr_coordinate_system(coordinate_system: dict[str, Any]) -> st
     return coordinate_system.get("wkt")
 
 
+def normalize_crs(crs_text: str | None) -> str | None:
+    """Reduce a CRS to its EPSG code when one exists, else leave the text alone."""
+    epsg = parse_epsg(crs_text)
+    return f"EPSG:{epsg}" if epsg else crs_text
+
+
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:
     """Classify a CRS as ok, missing or suspicious given the dataset extent."""
     if not crs_text:
