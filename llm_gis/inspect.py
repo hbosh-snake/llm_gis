@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, work_root, write_json
+from llm_gis.common import (
+    crs_status,
+    crs_text_from_ogr_coordinate_system,
+    ensure_workspace_dirs,
+    run_command,
+    utc_now,
+    work_root,
+    write_json,
+)
 from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
 from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
@@ -83,10 +91,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         extent = _extract_vector_extent(vector_out)
         field = vector_out.get("layers", [{}])[0].get("geometryFields", [{}])[0]
         coordinate_system = field.get("coordinateSystem") or {}
-        projjson_id = (coordinate_system.get("projjson") or {}).get("id") or {}
-        authority = projjson_id.get("authority")
-        code = projjson_id.get("code")
-        crs_text = f"{authority}:{code}" if authority and code else coordinate_system.get("wkt")
+        crs_text = crs_text_from_ogr_coordinate_system(coordinate_system)
         status, reasons = crs_status(crs_text, extent)
         report = {
             "dataset_kind": "vector",

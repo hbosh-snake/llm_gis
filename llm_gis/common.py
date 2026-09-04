@@ -149,6 +149,16 @@ def parse_epsg(value: str | None) -> int | None:
     return crs.to_epsg() if crs else None
 
 
+def crs_text_from_ogr_coordinate_system(coordinate_system: dict[str, Any]) -> str | None:
+    """Extract 'AUTHORITY:CODE', falling back to WKT, from an ogrinfo/gdalinfo coordinateSystem block."""
+    projjson_id = (coordinate_system.get("projjson") or {}).get("id") or {}
+    authority = projjson_id.get("authority")
+    code = projjson_id.get("code")
+    if authority and code:
+        return f"{authority}:{code}"
+    return coordinate_system.get("wkt")
+
+
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:
     """Classify a CRS as ok, missing or suspicious given the dataset extent."""
     if not crs_text:

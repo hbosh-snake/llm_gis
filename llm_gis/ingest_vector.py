@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +133,13 @@ def ingest_vector(
                     )
                 )
 
+            cur.execute(
+                sql.SQL("SELECT COUNT(*) FROM {}.{};").format(
+                    sql.Identifier(resolved_schema), sql.Identifier(resolved_table)
+                )
+            )
+            feature_count = int(cur.fetchone()[0])
+
             details = {
                 "dataset_kind": "vector",
                 "schema": resolved_schema,
@@ -164,7 +172,7 @@ def ingest_vector(
                     "success",
                     f"/data/work/reports/{resolved_ingest_id}.json",
                     f"/data/work/logs/{resolved_ingest_id}",
-                    __import__("json").dumps(details),
+                    json.dumps(details),
                 ),
             )
 
@@ -178,6 +186,9 @@ def ingest_vector(
         "detected_crs": detected_crs,
         "chosen_crs": chosen_crs,
         "crs_status": crs_status,
+        "feature_count": feature_count,
+        "invalid_before": invalid_before,
+        "invalid_after": invalid_after,
         "created_at": utc_now(),
     }
     write_json(WORK_ROOT / "reports" / f"{resolved_ingest_id}.json", report)

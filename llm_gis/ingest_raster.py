@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 from pathlib import Path
@@ -23,6 +24,12 @@ from llm_gis.inspect import inspect_dataset
 
 
 WORK_ROOT = Path("/data/work")
+
+
+def _loaded_dimensions(path: Path) -> tuple[int, list[int] | None]:
+    """Band count and pixel size of the raster actually handed to raster2pgsql."""
+    payload = json.loads(run_command(["gdalinfo", "-json", str(path)]))
+    return len(payload.get("bands", [])), payload.get("size")
 
 
 def ingest_raster(
@@ -63,6 +70,7 @@ def ingest_raster(
 
     chosen_crs = dst_crs or src_crs or detected_crs
     srid = parse_epsg(chosen_crs if isinstance(chosen_crs, str) else None)
+    band_count, size = _loaded_dimensions(raster_input)
 
     with db_connect() as conn:
         with conn.cursor() as cur:
@@ -108,7 +116,7 @@ def ingest_raster(
                     "success",
                     f"/data/work/reports/{resolved_ingest_id}.json",
                     f"/data/work/logs/{resolved_ingest_id}",
-                    __import__("json").dumps(details),
+                    json.dumps(details),
                 ),
             )
 
@@ -122,6 +130,8 @@ def ingest_raster(
         "detected_crs": detected_crs,
         "chosen_crs": chosen_crs,
         "crs_status": crs_status,
+        "band_count": band_count,
+        "size": size,
         "created_at": utc_now(),
     }
     write_json(WORK_ROOT / "reports" / f"{resolved_ingest_id}.json", report)
