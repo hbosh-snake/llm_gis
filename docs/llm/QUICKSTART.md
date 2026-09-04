@@ -32,6 +32,14 @@ All commands are wrappers in `bin/`. They run inside the `agent` Docker containe
 - **CRS must be resolved before ingesting.** If `crs_status` is `"missing"` or `"suspicious"`, pass `--src-crs EPSG:XXXX` to declare the correct CRS.
 - **Use a projected CRS for metric work.** Buffer, area, and distance operations require a metric CRS. Use EPSG:3035 (Europe) or the appropriate regional UTM zone.
 
+## Source Selection
+
+- If the user mentions `data/incoming/<file>`, use that file as the source of truth.
+- Do not switch to an existing PostGIS table just because it already exists.
+- If the archive contains multiple polygon layers and the request does not name one, inspect the file first and list the candidate layers.
+- If more than one layer could satisfy the request, ask which layer to use instead of guessing.
+- Before analysis SQL is written, confirm the source path, chosen layer or layers, and expected output table.
+
 ## Commands
 
 ```
@@ -69,6 +77,12 @@ bin/export <output_path> --format gpkg|geojson --sql "SELECT ..."
 
 7. bin/export /data/outgoing/<result>.gpkg --format gpkg --table analysis_<ingest_id>.<result_table>
 ```
+
+## Ambiguous Requests
+
+- For requests like "for each polygon" or "top N polygons", default to the incoming file, not prior DB state.
+- If the request does not specify a layer and the incoming file contains several polygon layers, stop and ask for the layer name.
+- If the request is meant to operate on an existing analysis table, the user should say so explicitly.
 
 ## Key output fields
 

@@ -1,144 +1,308 @@
 # llm-gis
 
-Headless geospatial analysis backend controlled through non-interactive CLI commands. Drop data in, run commands, get GeoPackage/GeoJSON out.
+`llm-gis` is a small, headless GIS workspace you run with Docker.
 
-**What it is:** PostGIS + GDAL in Docker, driven by an AI coding agent or a human operator.
-**What it is not:** A web GIS, map renderer, or desktop GIS environment.
+You put geospatial files into `data/incoming/`, run a few commands, and get analysis results back in `data/outgoing/`.
 
----
+This project is for:
+- loading vector and raster data into PostGIS
+- checking CRS information before import
+- running repeatable spatial SQL
+- exporting results as GeoPackage or GeoJSON
 
-## Prerequisites
+This project is not:
+- a web map
+- a desktop GIS
+- a Jupyter notebook environment
 
-- Docker and Docker Compose
+## What You Need
 
-## Setup
+Before you start, make sure you have:
+- Docker
+- Docker Compose
+
+You do not need to install PostgreSQL, PostGIS, GDAL, or Python on your machine. Docker provides the working environment.
+
+Run all commands in this README from the repo root directory unless noted otherwise.
+
+## Project Folders
+
+These are the only folders most people need to care about:
+
+| Folder | Purpose |
+|--------|---------|
+| `data/incoming/` | Put raw input files here |
+| `data/work/` | Temporary files, logs, and SQL working files |
+| `data/outgoing/` | Exported results appear here, in dated subfolders |
+| `data/archive/` | Processed source files are moved here after a workflow completes |
+
+Examples of supported inputs:
+- Shapefile
+- GeoPackage
+- GeoJSON
+- GeoTIFF
+
+If your data is a Shapefile, keep all of its sidecar files together, not just the `.shp` file. In practice, that usually means copying the full set of `.shp`, `.shx`, `.dbf`, and `.prj` files, or using a ZIP that contains them together.
+
+## 5-Minute Setup
+
+Clone the repo, start Docker, and verify the tools:
 
 ```bash
-git clone <repo>
+git clone <repo-url>
 cd llm-gis
 docker compose up -d --build
-bin/doctor        # verify DB connectivity and tool versions
+bin/doctor
 ```
 
-Data directories are created automatically on first run.
+What success looks like:
+- Docker starts two services: `db` and `agent`
+- `bin/doctor` returns JSON instead of an error
 
----
+If `bin/doctor` fails, stop there and fix Docker before trying anything else.
 
-## Data paths
-
-| Host path | Container path | Access | Purpose |
-|-----------|---------------|--------|---------|
-| `data/incoming/` | `/data/incoming` | read-only | Drop raw datasets here |
-| `data/work/` | `/data/work` | read/write | Staging, logs, reports |
-| `data/outgoing/` | `/data/outgoing` | read/write | Export outputs |
-| `./` (repo root) | `/workspace` | read/write | SQL files, scripts |
-
----
-
-## Commands
-
-All `bin/*` scripts run inside the `agent` container. All output is JSON on stdout.
-
-| Command | Description |
-|---------|-------------|
-| `bin/doctor` | Check DB connectivity and print GDAL/psql versions |
-| `bin/inspect <path>` | Inspect a dataset; returns CRS, geometry type, extent, `crs_status` |
-| `bin/stage <path>` | Hash and copy input to staging; returns an `ingest_id` |
-| `bin/ingest-vector <path> --table <name>` | Load vector data into PostGIS via `ogr2ogr` |
-| `bin/ingest-raster <path> --table <name>` | Load raster data into PostGIS via `raster2pgsql` |
-| `bin/list-ingestions [--limit N]` | List all past ingestions from `meta.ingestions`, newest first |
-| `bin/describe-table <schema.table>` | Show column names, types, and row count |
-| `bin/run-sql <file> --ingest-id <id>` | Execute a SQL file with controlled `search_path` |
-| `bin/export <path> --format gpkg\|geojson --table <schema.table>` | Export a table to file |
-
----
-
-## Worked example
+You can also confirm both services are up with:
 
 ```bash
-# 1. Inspect — check CRS before ingesting
-bin/inspect data/incoming/roads.gpkg
-# Check "crs_status" in output: "ok" -> proceed; "missing"/"suspicious" -> add --src-crs
-
-# 2. Ingest — reproject to a metric CRS for spatial analysis
-bin/ingest-vector data/incoming/roads.gpkg --table roads --dst-crs EPSG:3035
-# Note the "ingest_id" in the output, e.g. "20260307120000_abc123def4"
-
-# 3. Discover column names before writing SQL
-bin/describe-table raw_20260307120000_abc123def4.roads
-
-# 4. Write analysis SQL
-cat > data/work/analysis.sql <<'SQL'
-CREATE SCHEMA IF NOT EXISTS analysis_20260307120000_abc123def4;
-
-CREATE TABLE analysis_20260307120000_abc123def4.roads_buffer AS
-SELECT fid, name, ST_Buffer(geom, 100) AS geom
-FROM roads;
-SQL
-
-# 5. Run the SQL
-bin/run-sql data/work/analysis.sql --ingest-id 20260307120000_abc123def4
-
-# 6. Verify the result was created
-bin/describe-table analysis_20260307120000_abc123def4.roads_buffer
-
-# 7. Export
-bin/export data/outgoing/roads_buffer.gpkg \
-  --format gpkg \
-  --table analysis_20260307120000_abc123def4.roads_buffer
+docker compose ps
 ```
 
----
+## How The Workflow Works
 
-## CRS handling
+The normal workflow is:
 
-`bin/inspect` returns a `crs_status` field:
+1. Put a dataset in `data/incoming/`
+2. Inspect it to check CRS and basic metadata
+3. Ingest it into PostGIS
+4. Run a SQL analysis
+5. Export the result to `data/outgoing/`
 
-- `"ok"` — proceed normally
-- `"missing"` — no CRS found; add `--src-crs EPSG:XXXX` to the ingest command
-- `"suspicious"` — CRS and extent are inconsistent; add `--src-crs EPSG:XXXX` to override
+You do not prepare the database manually. The project creates the PostGIS extensions and metadata tables automatically on first startup.
 
-Use `--dst-crs` to reproject on load. For metric analyses (area, buffer, distance) always use a
-projected CRS such as EPSG:3035 (Europe LAEA) or the appropriate regional UTM zone.
+## Quickstart: Vector Data
 
----
+This is the simplest end-to-end example.
 
-## Database schemas
+### 1. Copy a dataset into `data/incoming/`
 
-| Schema | Contents |
-|--------|---------|
-| `meta.ingestions` | Per-ingest metadata — status, CRS decisions, paths, timestamps |
-| `raw_<ingest_id>` | Source data loaded by ingest commands |
-| `analysis_<ingest_id>` | Derived tables created by `run-sql` |
+Example:
 
-The database initializes itself on first boot: PostGIS extension, `meta` schema, `ingestions` table.
+```bash
+cp /path/to/roads.gpkg data/incoming/
+```
 
----
+### 2. Inspect the dataset
 
-## Key conventions
+```bash
+bin/inspect data/incoming/roads.gpkg
+```
 
-- **Column names are always lowercase.** `ogr2ogr` lowercases all attribute names on load. `Name` → `name`.
-- **Geometry column is `geom`, primary key is `fid`.** Always use these names in SQL.
-- **The analysis schema is not auto-created.** Your SQL must begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`.
-- **Ingest ID format:** `YYYYMMDDHHMMSS_<first10ofSHA256>` — e.g. `20260226174050_d9d4a9f8b2`.
+Look for these fields in the JSON output:
+- `dataset_kind`
+- `detected_crs`
+- `crs_status`
+- `layers`
 
----
+How to read `crs_status`:
+- `ok`: safe to continue
+- `missing`: the file has no usable CRS information
+- `suspicious`: the CRS and the coordinate values do not match well enough to trust automatically
 
-## Environment variables
+If the status is `missing` or `suspicious`, you must provide the correct CRS during ingest with `--src-crs EPSG:XXXX`.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `PGHOST` | `db` | PostgreSQL host |
-| `PGPORT` | `5432` | PostgreSQL port |
-| `PGDATABASE` | `gis` | Database name |
-| `PGUSER` | `gis` | Database user |
-| `PGPASSWORD` | `gis` | Database password |
-| `DATABASE_URL` | _(derived)_ | Takes precedence over individual vars if set |
+### 3. Ingest the vector data into PostGIS
 
----
+```bash
+bin/ingest-vector data/incoming/roads.gpkg --table roads --dst-crs EPSG:3035
+```
 
-## Agent documentation
+What this does:
+- loads the file into PostGIS
+- creates a schema named `raw_<ingest_id>`
+- stores the table as `roads`
+- reprojects to `EPSG:3035` on load
 
-- [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md) — capabilities and constraints for an AI agent
-- [`docs/llm/README.md`](docs/llm/README.md) — full command reference for an AI agent
-- [`docs/llm/manifest.json`](docs/llm/manifest.json) — machine-readable command manifest
+Why use `--dst-crs` here:
+- distance, buffer, and area calculations should usually use a projected CRS, not latitude/longitude
+
+Important:
+- save the `ingest_id` from the JSON output
+- you will use it in the next commands
+- when you see `<ingest_id>` later in this README, replace it with that real value
+
+If you already know the source CRS is wrong or missing, use:
+
+```bash
+bin/ingest-vector data/incoming/roads.gpkg --table roads --src-crs EPSG:4326 --dst-crs EPSG:3035
+```
+
+### 4. Check what was loaded
+
+```bash
+bin/describe-table raw_<ingest_id>.roads
+```
+
+Use this to confirm:
+- the table exists
+- the row count looks reasonable
+- the column names are what you expect
+
+## Run An Analysis
+
+Create a SQL file in `data/work/`.
+
+Example:
+
+```sql
+CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;
+
+CREATE TABLE analysis_<ingest_id>.roads_buffer AS
+SELECT
+  fid,
+  name,
+  ST_Buffer(geom, 100) AS geom
+FROM roads;
+```
+
+Save that as:
+
+```text
+data/work/analysis.sql
+```
+
+Replace `<ingest_id>` in the SQL with the actual value returned by `bin/ingest-vector`.
+
+Then run it:
+
+```bash
+bin/run-sql data/work/analysis.sql --ingest-id <ingest_id>
+```
+
+What this does:
+- connects to PostGIS
+- sets the schema search path so `roads` resolves to the ingested table
+- runs the SQL file
+- stops on SQL errors
+
+When you see angle brackets in examples, they are placeholders:
+- replace `<ingest_id>` with the real ingest ID from the ingest step
+- replace `EPSG:XXXX` with a real CRS code
+
+Then verify the output table:
+
+```bash
+bin/describe-table analysis_<ingest_id>.roads_buffer
+```
+
+## Export The Result
+
+Export to GeoPackage:
+
+```bash
+bin/export data/outgoing/roads_buffer.gpkg --format gpkg --table analysis_<ingest_id>.roads_buffer
+```
+
+Export to GeoJSON:
+
+```bash
+bin/export data/outgoing/roads_buffer.geojson --format geojson --table analysis_<ingest_id>.roads_buffer
+```
+
+Your output files will appear in `data/outgoing/`.
+
+## Quickstart: Raster Data
+
+Raster workflow is similar:
+
+1. Put the raster in `data/incoming/`
+2. Inspect it
+3. Ingest it
+4. Query it in PostGIS
+
+Example:
+
+```bash
+bin/inspect data/incoming/elevation.tif
+bin/ingest-raster data/incoming/elevation.tif --table elevation
+```
+
+If you need to reproject during raster ingest:
+
+```bash
+bin/ingest-raster data/incoming/elevation.tif --table elevation --dst-crs EPSG:3035
+```
+
+## Common Commands
+
+| Command | Use it for |
+|---------|------------|
+| `bin/doctor` | Check that Docker, the database, and GIS tools are reachable |
+| `bin/inspect <path>` | Read dataset metadata before import |
+| `bin/ingest-vector <path> --table <name>` | Load vector data into PostGIS |
+| `bin/ingest-raster <path> --table <name>` | Load raster data into PostGIS |
+| `bin/describe-table <schema.table>` | Check what was loaded or created |
+| `bin/run-sql <file> --ingest-id <id>` | Run a spatial SQL workflow |
+| `bin/export <path> --format gpkg|geojson --table <schema.table>` | Write a result file |
+| `bin/list-ingestions` | Review earlier ingests |
+
+## What Gets Created Automatically
+
+On first startup, the system creates:
+- the PostgreSQL database container
+- PostGIS extensions
+- a metadata table for tracking ingests
+
+You do not need to create schemas or extensions by hand before using the system.
+
+## Troubleshooting
+
+### `docker compose up` does not start cleanly
+
+Check:
+- Docker Desktop or Docker Engine is running
+- no other local service is already using the required Docker resources
+
+Then retry:
+
+```bash
+docker compose up -d --build
+```
+
+### `bin/doctor` fails
+
+This usually means:
+- Docker is not running
+- the database container is not healthy yet
+- the build did not complete cleanly
+
+Check status:
+
+```bash
+docker compose ps
+```
+
+### `bin/inspect` says CRS is missing or suspicious
+
+Do not ignore that.
+
+Find the correct CRS for the source data, then ingest again with:
+
+```bash
+--src-crs EPSG:XXXX
+```
+
+### SQL runs but cannot find the table you expect
+
+Check:
+- you used the right `ingest_id`
+- you created `analysis_<ingest_id>` in your SQL file
+- you confirmed the raw table name with `bin/describe-table`
+
+## Where To Find More Technical Detail
+
+This README is for human operators.
+
+If you are building agent workflows, extending commands, or working on the automation itself, use:
+- [`AGENTS.md`](AGENTS.md)
+- [`docs/llm/README.md`](docs/llm/README.md)
+- [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md)
