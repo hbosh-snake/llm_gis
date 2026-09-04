@@ -39,6 +39,8 @@ services:
       # Keep the container venv off the bind-mounted host .venv: the container
       # runs as root, so a shared venv leaves root-owned files on the host.
       UV_PROJECT_ENVIRONMENT: /opt/uv-venv
+      # An arbitrary uid has no home directory in the image.
+      HOME: /tmp
       GDAL_CACHEMAX: "256"
     volumes:
       - ./:/workspace:rw
@@ -46,9 +48,11 @@ services:
       - ./data/outgoing:/data/outgoing:rw
       - ./data/work:/data/work:rw
       - agentvenv:/opt/uv-venv
+      - agentcache:/opt/uv-cache
     entrypoint: ["/usr/local/bin/agent-entrypoint.sh"]
     command: ["sleep", "infinity"]
 
 volumes:
   pgdata:
   agentvenv:
+  agentcache:
