@@ -166,7 +166,7 @@ output.
 
 ## A note on cost
 
-`run-sql`'s `tables` field runs one `information_schema.tables` query plus one `COUNT(*)` per
-table found — cheap for the handful of tables a single analysis step typically creates, but it
-does mean the command's cost now scales with the number of tables in the schema, not just the
-SQL it ran. No command in this list counts rows in a schema it did not just touch.
+`run-sql`'s `tables` field lists the schema's tables before and after the SQL runs and counts
+rows only in the ones the run added. Cost scales with what the SQL created, not with what the
+schema already held, so a schema accumulating large intermediates is not rescanned on every
+call. A run that only modifies existing tables therefore reports an empty list.

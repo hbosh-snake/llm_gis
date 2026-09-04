@@ -51,3 +51,19 @@ def test_output_schema_lists_every_bin_command():
     )
     for command in commands:
         assert f"bin/{command}" in schema_text, f"OUTPUT_SCHEMA.md is missing {command}"
+
+
+def test_usage_errors_stay_with_typer():
+    """A malformed argument is the caller's typo, not an internal failure: exit 2."""
+    result = CliRunner().invoke(app, ["describe-table", "no-dot-here"])
+    assert result.exit_code == 2
+
+
+def test_export_of_a_non_spatial_layer_still_succeeds(tmp_path, monkeypatch):
+    """The read-back is reporting, not validation, and must not fail a written file."""
+    from llm_gis.exporter import _written_vector_summary
+
+    csv = tmp_path / "plain.csv"
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
+    count, crs = _written_vector_summary(csv)
+    assert crs is None

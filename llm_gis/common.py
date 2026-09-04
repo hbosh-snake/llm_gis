@@ -15,7 +15,7 @@ import psycopg
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from llm_gis.errors import COMMAND_FAILED, PATH_OUTSIDE_ROOT, GisError
+from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, GisError
 
 
 def utc_now() -> str:
@@ -41,7 +41,11 @@ def sha256_for_path(path: Path) -> str:
                 digest.update(str(rel).encode("utf-8"))
                 digest.update(_sha256_for_file(item).encode("ascii"))
         return digest.hexdigest()
-    raise FileNotFoundError(path)
+    raise GisError(
+        INPUT_NOT_FOUND,
+        f"Input path does not exist: {path}",
+        "Check the path; inputs are read from inside the container, usually under /data/incoming",
+    )
 
 
 def _sha256_for_file(path: Path) -> str:
@@ -76,6 +80,12 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _redact(text: str) -> str:
+    """Strip credentials from anything that reaches machine-readable output."""
+    text = re.sub(r"(password=)[^\s'\"]+", r"\1***", text)
+    return re.sub(r"(://[^:/\s]+:)[^@\s]+(@)", r"\1***\2", text)
+
+
 def run_command(
     args: list[str] | str,
     *,
@@ -94,7 +104,7 @@ def run_command(
     )
     if completed.returncode != 0:
         command = args if isinstance(args, str) else " ".join(shlex.quote(arg) for arg in args)
-        redacted = re.sub(r"password=\S+", "password=***", command)
+        redacted = _redact(command)
         raise GisError(
             COMMAND_FAILED,
             f"Command failed with exit {completed.returncode}: {redacted}",
@@ -102,8 +112,8 @@ def run_command(
             {
                 "command": redacted,
                 "returncode": completed.returncode,
-                "stderr": completed.stderr[-2000:],
-                "stdout": completed.stdout[-2000:],
+                "stderr": _redact(completed.stderr[-2000:]),
+                "stdout": _redact(completed.stdout[-2000:]),
             },
         )
     return completed.stdout

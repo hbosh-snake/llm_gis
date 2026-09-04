@@ -9,13 +9,14 @@ from llm_gis.errors import MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
 
 def _written_vector_summary(path: Path) -> tuple[int | None, str | None]:
     """Feature count and CRS actually present in the file just written."""
-    payload = json.loads(run_command(["ogrinfo", "-json", "-ro", str(path)]))
-    layers = payload.get("layers", [])
-    if not layers:
+    try:
+        payload = json.loads(run_command(["ogrinfo", "-json", "-ro", str(path)]))
+    except GisError:
         return None, None
+    layers = payload.get("layers") or [{}]
     layer = layers[0]
-    field = layer.get("geometryFields", [{}])[0]
-    crs_text = crs_text_from_ogr_coordinate_system(field.get("coordinateSystem") or {})
+    fields = layer.get("geometryFields") or []
+    crs_text = crs_text_from_ogr_coordinate_system(fields[0].get("coordinateSystem") or {}) if fields else None
     return layer.get("featureCount"), crs_text
 
 

@@ -13,8 +13,7 @@ from llm_gis.common import (
     work_root,
     write_json,
 )
-from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
-from llm_gis.errors import INPUT_NOT_FOUND, GisError
+from llm_gis.errors import INPUT_NOT_FOUND, UNSUPPORTED_FORMAT, GisError
 
 
 def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
@@ -23,7 +22,8 @@ def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
     minys: list[float] = []
     maxys: list[float] = []
     for layer in payload.get("layers", []):
-        extent = layer.get("geometryFields", [{}])[0].get("extent")
+        fields = layer.get("geometryFields") or [{}]
+        extent = fields[0].get("extent")
         if not extent:
             continue
         if isinstance(extent, list) and len(extent) >= 4:
@@ -89,7 +89,8 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
 
     if vector_out:
         extent = _extract_vector_extent(vector_out)
-        field = vector_out.get("layers", [{}])[0].get("geometryFields", [{}])[0]
+        first_layer = (vector_out.get("layers") or [{}])[0]
+        field = (first_layer.get("geometryFields") or [{}])[0]
         coordinate_system = field.get("coordinateSystem") or {}
         crs_text = crs_text_from_ogr_coordinate_system(coordinate_system)
         status, reasons = crs_status(crs_text, extent)
@@ -99,7 +100,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
             "layers": [
                 {
                     "name": layer.get("name"),
-                    "geometry_type": (layer.get("geometryFields", [{}])[0] or {}).get("type"),
+                    "geometry_type": ((layer.get("geometryFields") or [{}])[0] or {}).get("type"),
                     "feature_count": layer.get("featureCount"),
                 }
                 for layer in vector_out.get("layers", [])

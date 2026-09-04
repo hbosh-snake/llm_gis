@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 import typer
+from typer._click.exceptions import UsageError
 
 from llm_gis.describe import describe_table
 from llm_gis.doctor import doctor_report
@@ -44,7 +45,7 @@ def handle_errors(func: F) -> F:
             func(*args, **kwargs)
         except GisError as error:
             _fail(error)
-        except typer.Exit:
+        except (typer.Exit, typer.Abort, UsageError):
             raise
         except Exception as error:
             _fail(
