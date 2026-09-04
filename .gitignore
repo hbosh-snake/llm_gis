@@ -21,3 +21,9 @@ worktrees/
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Job plans and superseded design docs stay local; only the active roadmap
+# is tracked.
+docs/plans/*
+!docs/plans/2026-09-04_improvement_plan.md
+!docs/plans/2026-09-04_improvement_plan_revised.md
