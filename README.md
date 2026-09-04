@@ -339,3 +339,4 @@ If you are building agent workflows, extending commands, or working on the autom
 - [`AGENTS.md`](AGENTS.md)
 - [`docs/llm/README.md`](docs/llm/README.md)
 - [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md)
+- [`docs/llm/OUTPUT_SCHEMA.md`](docs/llm/OUTPUT_SCHEMA.md) — every command's exact JSON keys, and the error envelope
