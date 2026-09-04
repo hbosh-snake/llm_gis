@@ -5,11 +5,10 @@ from pathlib import Path
 
 from psycopg import sql
 
-from llm_gis.common import db_connect, ensure_workspace_dirs, run_command, sanitize_identifier, utc_now
+from llm_gis.common import db_connect, ensure_workspace_dirs, run_command, sanitize_identifier, utc_now, work_root
 from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
-WORK_ROOT = Path("/data/work")
 
 
 def _analysis_tables(schema: str) -> list[dict]:
@@ -47,7 +46,7 @@ def run_sql_file(sql_path: Path, ingest_id: str, statement_timeout: str = "5min"
     )
     combined = preamble + "\n" + sql_text
 
-    log_dir = WORK_ROOT / "logs" / sid
+    log_dir = work_root() / "logs" / sid
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "run-sql.log"
 

@@ -15,13 +15,13 @@ from llm_gis.common import (
     sanitize_identifier,
     sha256_for_path,
     utc_now,
+    work_root,
     write_json,
 )
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, GisError
 from llm_gis.inspect import inspect_dataset
 
 
-WORK_ROOT = Path("/data/work")
 
 
 def _ogr_command(
@@ -170,8 +170,8 @@ def ingest_vector(
                     str(detected_crs) if detected_crs else None,
                     str(chosen_crs) if chosen_crs else None,
                     "success",
-                    f"/data/work/reports/{resolved_ingest_id}.json",
-                    f"/data/work/logs/{resolved_ingest_id}",
+                    str(work_root() / "reports" / f"{resolved_ingest_id}.json"),
+                    str(work_root() / "logs" / resolved_ingest_id),
                     json.dumps(details),
                 ),
             )
@@ -191,5 +191,5 @@ def ingest_vector(
         "invalid_after": invalid_after,
         "created_at": utc_now(),
     }
-    write_json(WORK_ROOT / "reports" / f"{resolved_ingest_id}.json", report)
+    write_json(work_root() / "reports" / f"{resolved_ingest_id}.json", report)
     return report

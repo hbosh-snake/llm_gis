@@ -17,13 +17,13 @@ from llm_gis.common import (
     sanitize_identifier,
     sha256_for_path,
     utc_now,
+    work_root,
     write_json,
 )
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, GisError
 from llm_gis.inspect import inspect_dataset
 
 
-WORK_ROOT = Path("/data/work")
 
 
 def _loaded_dimensions(path: Path) -> tuple[int, list[int] | None]:
@@ -59,7 +59,7 @@ def ingest_raster(
 
     raster_input = input_path
     if dst_crs:
-        warped = WORK_ROOT / "staging" / resolved_ingest_id / "warped.tif"
+        warped = work_root() / "staging" / resolved_ingest_id / "warped.tif"
         warped.parent.mkdir(parents=True, exist_ok=True)
         warp_cmd = ["gdalwarp"]
         if src_crs:
@@ -114,8 +114,8 @@ def ingest_raster(
                     str(detected_crs) if detected_crs else None,
                     str(chosen_crs) if chosen_crs else None,
                     "success",
-                    f"/data/work/reports/{resolved_ingest_id}.json",
-                    f"/data/work/logs/{resolved_ingest_id}",
+                    str(work_root() / "reports" / f"{resolved_ingest_id}.json"),
+                    str(work_root() / "logs" / resolved_ingest_id),
                     json.dumps(details),
                 ),
             )
@@ -134,5 +134,5 @@ def ingest_raster(
         "size": size,
         "created_at": utc_now(),
     }
-    write_json(WORK_ROOT / "reports" / f"{resolved_ingest_id}.json", report)
+    write_json(work_root() / "reports" / f"{resolved_ingest_id}.json", report)
     return report
