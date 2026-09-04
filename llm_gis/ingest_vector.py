@@ -22,6 +22,37 @@ from llm_gis.inspect import inspect_dataset
 WORK_ROOT = Path("/data/work")
 
 
+def _ogr_command(
+    input_path: Path,
+    schema: str,
+    table: str,
+    src_crs: str | None,
+    dst_crs: str | None,
+    dsn: str,
+) -> list[str]:
+    command = [
+        "ogr2ogr",
+        "-f",
+        "PostgreSQL",
+        dsn,
+        str(input_path),
+        "-nln",
+        f"{schema}.{table}",
+        "-nlt",
+        "PROMOTE_TO_MULTI",
+        "-lco",
+        "GEOMETRY_NAME=geom",
+        "-lco",
+        "FID=fid",
+        "-overwrite",
+    ]
+    if src_crs:
+        command.extend(["-s_srs", src_crs])
+    if dst_crs:
+        command.extend(["-t_srs", dst_crs])
+    return command
+
+
 def ingest_vector(
     input_path: Path,
     table: str,
@@ -43,24 +74,14 @@ def ingest_vector(
         raise RuntimeError("Vector ingestion refused: CRS missing or suspicious; provide --src-crs")
     chosen_crs = dst_crs or src_crs or detected_crs
 
-    ogr_cmd = [
-        "ogr2ogr",
-        "-f",
-        "PostgreSQL",
-        pg_gdal_dsn(),
-        str(input_path),
-        "-nln",
-        f"{resolved_schema}.{resolved_table}",
-        "-lco",
-        "GEOMETRY_NAME=geom",
-        "-lco",
-        "FID=fid",
-        "-overwrite",
-    ]
-    if src_crs:
-        ogr_cmd.extend(["-s_srs", src_crs])
-    if dst_crs:
-        ogr_cmd.extend(["-t_srs", dst_crs])
+    ogr_cmd = _ogr_command(
+        input_path=input_path,
+        schema=resolved_schema,
+        table=resolved_table,
+        src_crs=src_crs,
+        dst_crs=dst_crs,
+        dsn=pg_gdal_dsn(),
+    )
 
     with db_connect() as conn:
         with conn.cursor() as cur:
