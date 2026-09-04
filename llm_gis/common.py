@@ -160,6 +160,11 @@ def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[s
     return ("suspicious", reasons) if reasons else ("ok", reasons)
 
 
+def incoming_root() -> Path:
+    """Read-only source root, overridable for testing."""
+    return Path(os.getenv("LLM_GIS_INCOMING_ROOT", "/data/incoming"))
+
+
 def work_root() -> Path:
     """Workspace root, overridable for host-side testing."""
     return Path(os.getenv("LLM_GIS_WORK_ROOT", "/data/work"))
