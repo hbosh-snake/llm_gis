@@ -4,7 +4,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from llm_gis.common import crs_status, ensure_workspace_dirs, run_command, utc_now, work_root, write_json
+from llm_gis.common import (
+    normalize_crs,
+    crs_status,
+    crs_text_from_ogr_coordinate_system,
+    ensure_workspace_dirs,
+    run_command,
+    utc_now,
+    work_root,
+    write_json,
+)
+from llm_gis.errors import INPUT_NOT_FOUND, UNSUPPORTED_FORMAT, GisError
 
 
 def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
@@ -13,7 +23,8 @@ def _extract_vector_extent(payload: dict[str, Any]) -> dict[str, float] | None:
     minys: list[float] = []
     maxys: list[float] = []
     for layer in payload.get("layers", []):
-        extent = layer.get("geometryFields", [{}])[0].get("extent")
+        fields = layer.get("geometryFields") or [{}]
+        extent = fields[0].get("extent")
         if not extent:
             continue
         if isinstance(extent, list) and len(extent) >= 4:
@@ -51,7 +62,11 @@ def _extract_raster_extent(payload: dict[str, Any]) -> dict[str, float] | None:
 def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str, Any]:
     ensure_workspace_dirs()
     if not input_path.exists():
-        raise FileNotFoundError(input_path)
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"Input path does not exist: {input_path}",
+            "Check the path and try again",
+        )
 
     vector_out: dict[str, Any] | None = None
     raster_out: dict[str, Any] | None = None
@@ -67,16 +82,18 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         raster_out = None
 
     if not vector_out and not raster_out:
-        raise RuntimeError(f"Could not inspect dataset {input_path} as vector or raster")
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"Neither ogrinfo nor gdalinfo could read {input_path}",
+            "Confirm the file is a GDAL-readable vector or raster; for a sidecar format ensure companion files are present",
+        )
 
     if vector_out:
         extent = _extract_vector_extent(vector_out)
-        field = vector_out.get("layers", [{}])[0].get("geometryFields", [{}])[0]
+        first_layer = (vector_out.get("layers") or [{}])[0]
+        field = (first_layer.get("geometryFields") or [{}])[0]
         coordinate_system = field.get("coordinateSystem") or {}
-        projjson_id = (coordinate_system.get("projjson") or {}).get("id") or {}
-        authority = projjson_id.get("authority")
-        code = projjson_id.get("code")
-        crs_text = f"{authority}:{code}" if authority and code else coordinate_system.get("wkt")
+        crs_text = normalize_crs(crs_text_from_ogr_coordinate_system(coordinate_system))
         status, reasons = crs_status(crs_text, extent)
         report = {
             "dataset_kind": "vector",
@@ -84,7 +101,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
             "layers": [
                 {
                     "name": layer.get("name"),
-                    "geometry_type": (layer.get("geometryFields", [{}])[0] or {}).get("type"),
+                    "geometry_type": ((layer.get("geometryFields") or [{}])[0] or {}).get("type"),
                     "feature_count": layer.get("featureCount"),
                 }
                 for layer in vector_out.get("layers", [])
@@ -98,7 +115,7 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         }
     else:
         extent = _extract_raster_extent(raster_out or {})
-        crs_text = (raster_out or {}).get("coordinateSystem", {}).get("wkt")
+        crs_text = normalize_crs((raster_out or {}).get("coordinateSystem", {}).get("wkt"))
         status, reasons = crs_status(crs_text, extent)
         report = {
             "dataset_kind": "raster",

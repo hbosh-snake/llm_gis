@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 from llm_gis.inspect import inspect_dataset
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -37,5 +38,15 @@ def test_inspect_raster_fixture():
 
 
 def test_inspect_missing_path_raises():
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(GisError) as excinfo:
         inspect_dataset(FIXTURES / "does-not-exist.gpkg")
+    assert excinfo.value.code == INPUT_NOT_FOUND
+
+
+def test_crs_is_reported_as_an_epsg_code_for_both_kinds(monkeypatch, tmp_path):
+    """detected_crs must have one shape; the raster path used to emit raw WKT."""
+    monkeypatch.setenv("LLM_GIS_WORK_ROOT", str(tmp_path))
+    vector = inspect_dataset(FIXTURES / "aoi.gpkg")["detected_crs"]
+    raster = inspect_dataset(FIXTURES / "elevation.tif")["detected_crs"]
+    assert vector == "EPSG:4326"
+    assert raster == "EPSG:4326"

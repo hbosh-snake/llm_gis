@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from llm_gis.common import run_command, utc_now
+from llm_gis.common import incoming_root, run_command, utc_now, work_root
+from llm_gis.errors import GisError
 
 
 def doctor_report() -> dict:
@@ -14,13 +15,13 @@ def doctor_report() -> dict:
     try:
         run_command(["psql", "-v", "ON_ERROR_STOP=1", "-c", "SELECT 1;"])
         db_ok = True
-    except Exception as exc:
-        db_error = str(exc)
+    except GisError as exc:
+        db_error = exc.details.get("stderr", "").strip() or exc.message
 
     paths = {
-        "incoming_exists": Path("/data/incoming").exists(),
+        "incoming_exists": incoming_root().exists(),
         "outgoing_exists": Path("/data/outgoing").exists(),
-        "work_exists": Path("/data/work").exists(),
+        "work_exists": work_root().exists(),
     }
 
     return {

@@ -15,6 +15,8 @@ import psycopg
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
+from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, GisError
+
 
 def utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -39,7 +41,11 @@ def sha256_for_path(path: Path) -> str:
                 digest.update(str(rel).encode("utf-8"))
                 digest.update(_sha256_for_file(item).encode("ascii"))
         return digest.hexdigest()
-    raise FileNotFoundError(path)
+    raise GisError(
+        INPUT_NOT_FOUND,
+        f"Input path does not exist: {path}",
+        "Check the path; inputs are read from inside the container, usually under /data/incoming",
+    )
 
 
 def _sha256_for_file(path: Path) -> str:
@@ -62,12 +68,22 @@ def ensure_child_path(path: Path, root: Path) -> None:
     resolved = path.resolve()
     resolved_root = root.resolve()
     if resolved != resolved_root and resolved_root not in resolved.parents:
-        raise ValueError(f"Path {path} is outside allowed root {root}")
+        raise GisError(
+            PATH_OUTSIDE_ROOT,
+            f"Path {path} is outside allowed root {root}",
+            f"Use a path under {root}",
+        )
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _redact(text: str) -> str:
+    """Strip credentials from anything that reaches machine-readable output."""
+    text = re.sub(r"(password=)[^\s'\"]+", r"\1***", text)
+    return re.sub(r"(://[^:/\s]+:)[^@\s]+(@)", r"\1***\2", text)
 
 
 def run_command(
@@ -88,8 +104,17 @@ def run_command(
     )
     if completed.returncode != 0:
         command = args if isinstance(args, str) else " ".join(shlex.quote(arg) for arg in args)
-        raise RuntimeError(
-            f"Command failed ({completed.returncode}): {command}\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+        redacted = _redact(command)
+        raise GisError(
+            COMMAND_FAILED,
+            f"Command failed with exit {completed.returncode}: {redacted}",
+            "Read details.stderr for the underlying tool diagnostic",
+            {
+                "command": redacted,
+                "returncode": completed.returncode,
+                "stderr": _redact(completed.stderr[-2000:]),
+                "stdout": _redact(completed.stdout[-2000:]),
+            },
         )
     return completed.stdout
 
@@ -132,6 +157,22 @@ def parse_crs(value: str | None) -> CRS | None:
 def parse_epsg(value: str | None) -> int | None:
     crs = parse_crs(value)
     return crs.to_epsg() if crs else None
+
+
+def crs_text_from_ogr_coordinate_system(coordinate_system: dict[str, Any]) -> str | None:
+    """Extract 'AUTHORITY:CODE', falling back to WKT, from an ogrinfo/gdalinfo coordinateSystem block."""
+    projjson_id = (coordinate_system.get("projjson") or {}).get("id") or {}
+    authority = projjson_id.get("authority")
+    code = projjson_id.get("code")
+    if authority and code:
+        return f"{authority}:{code}"
+    return coordinate_system.get("wkt")
+
+
+def normalize_crs(crs_text: str | None) -> str | None:
+    """Reduce a CRS to its EPSG code when one exists, else leave the text alone."""
+    epsg = parse_epsg(crs_text)
+    return f"EPSG:{epsg}" if epsg else crs_text
 
 
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:

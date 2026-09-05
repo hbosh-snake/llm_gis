@@ -6,27 +6,32 @@ from pathlib import Path
 
 from llm_gis.common import (
     ensure_child_path,
-    incoming_root,
     ensure_workspace_dirs,
+    incoming_root,
     make_ingest_id,
     sha256_for_path,
     utc_now,
+    work_root,
     write_json,
 )
+from llm_gis.errors import INPUT_NOT_FOUND, GisError
 
 
-WORK_ROOT = Path("/data/work")
 
 
 def stage_input(input_path: Path, ingest_id: str | None = None) -> dict:
     ensure_workspace_dirs()
     if not input_path.exists():
-        raise FileNotFoundError(input_path)
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"Input path does not exist: {input_path}",
+            "Check the path and that it is under data/incoming",
+        )
     ensure_child_path(input_path, incoming_root())
 
     input_hash = sha256_for_path(input_path)
     resolved_ingest_id = ingest_id or make_ingest_id(input_hash)
-    stage_dir = WORK_ROOT / "staging" / resolved_ingest_id
+    stage_dir = work_root() / "staging" / resolved_ingest_id
     stage_dir.mkdir(parents=True, exist_ok=True)
 
     target = stage_dir / input_path.name
@@ -48,5 +53,5 @@ def stage_input(input_path: Path, ingest_id: str | None = None) -> dict:
         "staged_item": str(target),
         "created_at": utc_now(),
     }
-    write_json(WORK_ROOT / "reports" / f"{resolved_ingest_id}.json", report)
+    write_json(work_root() / "reports" / f"{resolved_ingest_id}.json", report)
     return report
