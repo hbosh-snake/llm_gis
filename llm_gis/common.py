@@ -170,9 +170,20 @@ def crs_text_from_ogr_coordinate_system(coordinate_system: dict[str, Any]) -> st
 
 
 def normalize_crs(crs_text: str | None) -> str | None:
-    """Reduce a CRS to its EPSG code when one exists, else leave the text alone."""
-    epsg = parse_epsg(crs_text)
-    return f"EPSG:{epsg}" if epsg else crs_text
+    """Reduce a CRS to a compact authority:code, whatever form it arrived in.
+
+    WKT, PROJJSON and EPSG strings all collapse to the same shape. OGC:CRS84 has
+    no EPSG code but is not EPSG:4326 either, since its axis order differs, so it
+    keeps its own authority rather than being coerced.
+    """
+    crs = parse_crs(crs_text)
+    if crs is None:
+        return crs_text
+    epsg = crs.to_epsg()
+    if epsg:
+        return f"EPSG:{epsg}"
+    authority = crs.to_authority()
+    return f"{authority[0]}:{authority[1]}" if authority else crs_text
 
 
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:
