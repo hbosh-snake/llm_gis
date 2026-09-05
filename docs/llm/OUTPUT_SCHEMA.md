@@ -129,7 +129,7 @@ output.
 | Key | Type | Meaning |
 |---|---|---|
 | `output_path` | string | The file written. |
-| `output_format` | string | `"gpkg"` or `"geojson"`. |
+| `output_format` | string | `"gpkg"`, `"geojson"` or `"parquet"`. |
 | `table` | string \| null | The table exported, if `--table` was used. |
 | `sql` | string \| null | The query exported, if `--sql` was used. |
 | `feature_count` | integer \| null | Features in the file just written, read back with `ogrinfo -json -ro`. |
