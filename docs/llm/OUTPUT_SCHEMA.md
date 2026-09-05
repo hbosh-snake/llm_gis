@@ -164,6 +164,30 @@ output.
 | `row_count` | integer | `SELECT COUNT(*)` on the table. |
 | `queried_at` | string | UTC timestamp. |
 
+### `bin/duck-describe`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `uri` | string | The Parquet or GeoParquet source, as given. May be a local path or an https/s3 URL. |
+| `row_count` | integer | Rows in the source. |
+| `columns` | array | One `{name, type}` per column, using DuckDB type names. |
+| `geometry_column` | string or null | The geometry column, or null for plain Parquet. |
+| `crs` | string or null | Compact `authority:code`, from the DuckDB geometry type or the GeoParquet `geo` metadata. |
+| `bbox` | object or null | `minx`/`miny`/`maxx`/`maxy` in the source CRS. |
+
+### `bin/duck-query`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `uri` | string | The source queried. |
+| `source_row_count` | integer | Rows in the source before filtering. |
+| `matched_row_count` | integer | Rows matching the bbox and attribute filters. |
+| `crs` | string or null | CRS of the source, as `duck-describe` reports it. |
+| `bbox` | array or null | The bbox filter applied, `[minx, miny, maxx, maxy]`. |
+| `where` | string or null | The attribute predicate applied. |
+| `output_path` | string or null | Where the subset was written, or null if nothing was written. |
+| `engine` | string | Always `duckdb`. Names the engine that ran the operation. |
+
 ## A note on cost
 
 `run-sql`'s `tables` field lists the schema's tables before and after the SQL runs and counts
