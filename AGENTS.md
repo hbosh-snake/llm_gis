@@ -34,7 +34,15 @@ bin/run-sql <file> --ingest-id <id> [--statement-timeout 5min]
 bin/export <path> --format gpkg|geojson --table <schema.table>
 bin/export <path> --format gpkg|geojson --sql "SELECT ..."
 bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]
+bin/catalog-collections <catalog>
+bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]
+bin/catalog-item <item-url>
+bin/catalog-assets <item-url> [--role] [--media-type]
 ```
+
+STAC discovery never downloads. `<catalog>` is an alias (`overture`, `cdse`, `earth-search`)
+or any https URL. `catalog-search --bbox` is always lon/lat WGS84; `duck-query --bbox` is in
+the data's own CRS — same flag name, different meaning.
 
 ## Source-of-Truth Checkpoint
 

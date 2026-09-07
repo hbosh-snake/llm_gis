@@ -53,6 +53,25 @@ def test_output_schema_lists_every_bin_command():
         assert f"bin/{command}" in schema_text, f"OUTPUT_SCHEMA.md is missing {command}"
 
 
+def test_catalog_search_carries_the_envelope(monkeypatch):
+    from llm_gis import catalog
+
+    monkeypatch.setattr(
+        catalog, "search_items",
+        lambda *a, **k: {"catalog": "x", "mode": "traversal", "items": [], "items_returned": 0,
+                         "requests_used": 1, "truncated": False, "bbox": None, "datetime": None},
+    )
+    payload = _run_ok(CliRunner(), ["catalog-search", "overture"])
+    assert payload["status"] == "ok"
+    assert payload["command"] == "catalog-search"
+
+
+def test_catalog_search_rejects_a_malformed_bbox():
+    """Four numbers or nothing: exit 2, the caller's typo."""
+    result = CliRunner().invoke(app, ["catalog-search", "overture", "--bbox", "1,2,3"])
+    assert result.exit_code == 2
+
+
 def test_usage_errors_stay_with_typer():
     """A malformed argument is the caller's typo, not an internal failure: exit 2."""
     result = CliRunner().invoke(app, ["describe-table", "no-dot-here"])

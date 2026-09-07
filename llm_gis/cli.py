@@ -9,6 +9,7 @@ from typing import Callable, TypeVar
 import typer
 from typer._click.exceptions import UsageError
 
+from llm_gis import catalog as catalog_ops
 from llm_gis.describe import describe_table
 from llm_gis.duck import describe as duck_describe
 from llm_gis.doctor import doctor_report
@@ -194,6 +195,67 @@ def duck_query_cmd(
             output_path=output_path,
         ),
     )
+
+
+def _parse_bbox(bbox: str | None) -> list[float] | None:
+    """Four comma-separated numbers, always lon/lat WGS84 for STAC."""
+    if bbox is None:
+        return None
+    parts = [p.strip() for p in bbox.split(",")]
+    if len(parts) != 4:
+        raise typer.BadParameter("--bbox must be minx,miny,maxx,maxy in lon/lat")
+    return [float(p) for p in parts]
+
+
+@app.command("catalog-collections")
+@handle_errors
+def catalog_collections_cmd(
+    catalog: str = typer.Argument(..., help="Catalogue alias or URL"),
+) -> None:
+    """Collections a STAC catalogue offers. Never downloads an asset."""
+    _emit("catalog-collections", catalog_ops.list_collections(catalog))
+
+
+@app.command("catalog-search")
+@handle_errors
+def catalog_search_cmd(
+    catalog: str = typer.Argument(..., help="Catalogue alias or URL"),
+    collection: str | None = typer.Option(None, "--collection", help="Restrict to one collection id"),
+    bbox: str | None = typer.Option(None, "--bbox", help="minx,miny,maxx,maxy in lon/lat WGS84"),
+    datetime_spec: str | None = typer.Option(None, "--datetime", help="RFC 3339 instant or start/end range"),
+    limit: int = typer.Option(100, "--limit", help="Maximum items to return"),
+) -> None:
+    """Find items by area and time. Discovery only: no asset bytes are fetched."""
+    _emit(
+        "catalog-search",
+        catalog_ops.search_items(
+            catalog,
+            collection=collection,
+            bbox=_parse_bbox(bbox),
+            datetime_spec=datetime_spec,
+            limit=limit,
+        ),
+    )
+
+
+@app.command("catalog-item")
+@handle_errors
+def catalog_item_cmd(
+    item_url: str = typer.Argument(..., help="Item URL, the 'self' field from catalog-search"),
+) -> None:
+    """One STAC item, with its properties passed through verbatim."""
+    _emit("catalog-item", catalog_ops.get_item(item_url))
+
+
+@app.command("catalog-assets")
+@handle_errors
+def catalog_assets_cmd(
+    item_url: str = typer.Argument(..., help="Item URL, the 'self' field from catalog-search"),
+    role: str | None = typer.Option(None, "--role", help="Keep only assets carrying this role"),
+    media_type: str | None = typer.Option(None, "--media-type", help="Keep only this exact media type"),
+) -> None:
+    """Asset hrefs and advertised metadata. A duckdb-readable href feeds duck-query."""
+    _emit("catalog-assets", catalog_ops.get_assets(item_url, role=role, media_type=media_type))
 
 
 @app.command("doctor")
