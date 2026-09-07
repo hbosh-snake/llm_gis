@@ -40,7 +40,7 @@ services:
       # runs as root, so a shared venv leaves root-owned files on the host.
       UV_PROJECT_ENVIRONMENT: /opt/llm-gis/venv
       # Persist duckdb extensions on the cache volume; HOME is ephemeral here.
-      LLM_GIS_DUCKDB_EXTENSION_DIR: /opt/llm-gis/duckdb
+      LLM_GIS_DUCKDB_EXTENSION_DIR: /opt/llm-gis/cache/duckdb
       # An arbitrary uid has no home directory in the image.
       HOME: /tmp
       GDAL_CACHEMAX: "256"
