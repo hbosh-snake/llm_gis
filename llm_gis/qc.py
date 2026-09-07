@@ -152,11 +152,10 @@ def resolve_source(ref: str) -> dict[str, str]:
 def qc_report(ref: str, context: QcContext, *, exact_stats: bool = False) -> dict[str, Any]:
     """Collect metrics for one source and judge them against the declared context."""
     resolved = resolve_source(ref)
-    if resolved["kind"] != "file":
-        raise GisError(
-            INPUT_NOT_FOUND,
-            f"QC over PostGIS tables is not wired yet: {ref}",
-            "Pass a file path",
+    if resolved["kind"] == "file":
+        source, metrics = qc_collect.file_metrics(Path(ref), context.id_column, exact_stats)
+    else:
+        source, metrics = qc_collect.table_metrics(
+            resolved["schema"], resolved["table"], context.id_column
         )
-    source, metrics = qc_collect.file_metrics(Path(ref), context.id_column, exact_stats)
     return build_report(source, metrics, context)

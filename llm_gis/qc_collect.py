@@ -13,14 +13,16 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+from psycopg import sql
 
 from llm_gis.common import (
     crs_text_from_ogr_coordinate_system,
+    db_connect,
     normalize_crs,
     run_command,
 )
 from llm_gis.duck import _crs_from_geo_metadata, _geo_metadata, connect, reader_sql
-from llm_gis.errors import COMMAND_FAILED, GisError
+from llm_gis.errors import COMMAND_FAILED, TABLE_NOT_FOUND, GisError
 
 RASTER_SUFFIXES = {".tif", ".tiff", ".vrt", ".img", ".jp2"}
 
@@ -232,3 +234,152 @@ def file_metrics(path: Path, id_column: str | None, exact_stats: bool) -> tuple[
         else file_vector_metrics(path, id_column)
     )
     return {"kind": "file", "ref": str(path), "dataset_kind": kind}, metrics
+
+
+def _table_columns(cursor, schema: str, table: str) -> tuple[list[str], bool]:
+    cursor.execute(
+        """
+        SELECT column_name, udt_name
+        FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        ORDER BY ordinal_position
+        """,
+        (schema, table),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        raise GisError(
+            TABLE_NOT_FOUND,
+            f"Table {schema}.{table} does not exist or is not visible to this role",
+            "Run list-ingestions to see available schemas",
+        )
+    attributes = [name for name, udt in rows if udt not in {"geometry", "geography", "raster"}]
+    is_raster = any(udt == "raster" for _, udt in rows)
+    return attributes, is_raster
+
+
+def _table_vector_metrics(cursor, schema: str, table: str, attributes: list[str], id_column: str | None) -> dict:
+    relation = sql.SQL("{}.{}").format(sql.Identifier(schema), sql.Identifier(table))
+    null_terms = sql.SQL(", ").join(
+        sql.SQL("count(*) FILTER (WHERE {} IS NULL)").format(sql.Identifier(c)) for c in attributes
+    )
+    duplicate_term = (
+        sql.SQL("count(*) - count(DISTINCT {})").format(sql.Identifier(id_column))
+        if id_column
+        else sql.SQL("NULL::bigint")
+    )
+    statement = sql.SQL(
+        """
+        SELECT count(*),
+               count(*) FILTER (WHERE geom IS NULL OR ST_IsEmpty(geom)),
+               count(*) FILTER (WHERE geom IS NOT NULL AND NOT ST_IsValid(geom)),
+               ST_XMin(ST_Extent(geom)), ST_YMin(ST_Extent(geom)),
+               ST_XMax(ST_Extent(geom)), ST_YMax(ST_Extent(geom)),
+               max(ST_SRID(geom)),
+               bool_or(ST_Zmflag(geom) IN (2, 3)),
+               bool_or(ST_Zmflag(geom) IN (1, 3)),
+               min(ST_Area(geom)), max(ST_Area(geom)), avg(ST_Area(geom)), sum(ST_Area(geom)),
+               min(ST_Length(geom)), max(ST_Length(geom)), avg(ST_Length(geom)), sum(ST_Length(geom)),
+               {duplicates}{null_head}{nulls}
+        FROM {relation}
+        """
+    ).format(
+        duplicates=duplicate_term,
+        null_head=sql.SQL(", ") if attributes else sql.SQL(""),
+        nulls=null_terms if attributes else sql.SQL(""),
+        relation=relation,
+    )
+    cursor.execute(statement)
+    values = cursor.fetchone()
+    keys = [
+        "feature_count", "empty_count", "invalid_count", "minx", "miny", "maxx", "maxy",
+        "srid", "has_z", "has_m",
+        "area_min", "area_max", "area_mean", "area_sum",
+        "length_min", "length_max", "length_mean", "length_sum",
+        "duplicate_id_count",
+    ]
+    row = dict(zip(keys, values))
+    row["null_counts"] = {c: int(v) for c, v in zip(attributes, values[len(keys):])}
+    return row
+
+
+def _table_geometry_histogram(cursor, schema: str, table: str) -> dict[str, int]:
+    cursor.execute(
+        sql.SQL(
+            "SELECT GeometryType(geom), count(*) FROM {}.{} WHERE geom IS NOT NULL GROUP BY 1"
+        ).format(sql.Identifier(schema), sql.Identifier(table))
+    )
+    return {str(t): int(n) for t, n in cursor.fetchall()}
+
+
+def _table_raster_metrics(cursor, schema: str, table: str) -> dict:
+    """Structure only. Pixel statistics over a tiled raster table are deferred."""
+    cursor.execute(
+        """
+        SELECT srid, scale_x, scale_y, num_bands,
+               ST_XMin(extent), ST_YMin(extent), ST_XMax(extent), ST_YMax(extent)
+        FROM raster_columns
+        WHERE r_table_schema = %s AND r_table_name = %s
+        """,
+        (schema, table),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        raise GisError(
+            TABLE_NOT_FOUND,
+            f"{schema}.{table} has a raster column but no raster_columns entry",
+            "Re-run ingest-raster for this table",
+        )
+    srid, scale_x, scale_y, num_bands, minx, miny, maxx, maxy = row
+    return {
+        "crs": f"EPSG:{srid}" if srid else None,
+        "bbox": None if minx is None else {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy},
+        "vector": None,
+        "raster": {
+            "width": None,
+            "height": None,
+            "band_count": num_bands,
+            "resolution": {"x": scale_x, "y": abs(scale_y) if scale_y else None},
+            "bands": [],
+            "stats_mode": "none",
+        },
+    }
+
+
+def table_metrics(schema: str, table: str, id_column: str | None) -> tuple[dict, dict]:
+    """Vector tables fully, raster tables structurally. Returns (source, metrics)."""
+    with db_connect() as conn:
+        with conn.cursor() as cursor:
+            attributes, is_raster = _table_columns(cursor, schema, table)
+            if is_raster:
+                metrics = _table_raster_metrics(cursor, schema, table)
+                kind = "raster"
+            else:
+                resolved_id = id_column or ("fid" if "fid" in attributes else None)
+                row = _table_vector_metrics(cursor, schema, table, attributes, resolved_id)
+                histogram = _table_geometry_histogram(cursor, schema, table)
+                dimension = _dimension_stats(histogram)
+                metrics = {
+                    "crs": f"EPSG:{row['srid']}" if row["srid"] else None,
+                    "bbox": None if row["minx"] is None else {
+                        "minx": row["minx"], "miny": row["miny"],
+                        "maxx": row["maxx"], "maxy": row["maxy"],
+                    },
+                    "vector": {
+                        "feature_count": int(row["feature_count"]),
+                        "geometry_types": histogram,
+                        "declared_geometry_type": None,
+                        "empty_count": int(row["empty_count"]),
+                        "invalid_count": int(row["invalid_count"]),
+                        "has_z": row["has_z"],
+                        "has_m": row["has_m"],
+                        "area_stats": _stats_block(row, "area") if dimension == "area" else None,
+                        "length_stats": _stats_block(row, "length") if dimension == "length" else None,
+                        "null_counts": row["null_counts"],
+                        "duplicate_id_count": None if row["duplicate_id_count"] is None else int(row["duplicate_id_count"]),
+                        "id_column": resolved_id,
+                    },
+                    "raster": None,
+                }
+                kind = "vector"
+    return {"kind": "postgis_table", "ref": f"{schema}.{table}", "dataset_kind": kind}, metrics
