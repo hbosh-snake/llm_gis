@@ -35,6 +35,7 @@ You are working on **llm-gis**: a headless geospatial analysis backend. It inges
 | `bin/run-sql <file> --ingest-id <id> [--statement-timeout 5min]` | Execute SQL with controlled search_path |
 | `bin/export <path> --format gpkg\|geojson --table <schema.table>` | Export table to file |
 | `bin/export <path> --format gpkg\|geojson --sql "SELECT ..."` | Export query to file |
+| `bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]` | Deterministic metrics and warnings for a dataset or table |
 
 ## Standard workflow
 
@@ -46,7 +47,27 @@ You are working on **llm-gis**: a headless geospatial analysis backend. It inges
 5. bin/run-sql /data/work/<ingest_id>.sql --ingest-id <ingest_id>
 6. bin/describe-table analysis_<ingest_id>.result_table  -> verify
 7. bin/export /data/outgoing/result.gpkg --format gpkg --table analysis_<ingest_id>.result_table
+   -> returns a "qc" block by default (--no-qc to skip)
+8. Read qc.warnings and report anything there to the human in plain terms before declaring the job done.
 ```
+
+## Quality control
+
+QC reports metrics and, where the caller declared enough context, warnings.
+
+| Code | Meaning |
+|---|---|
+| `CRS_MISSING` | No CRS on the dataset |
+| `CRS_SUSPICIOUS` | The CRS does not match the extent (lon/lat values in a projected CRS, or the reverse) |
+| `GEOGRAPHIC_CRS_FOR_METRIC_OPERATION` | Areas or distances requested from degree-based coordinates. Needs `--metric-op` |
+| `EMPTY_RESULT_UNEXPECTED` | Zero features where features were expected. Needs `--expect-non-empty` |
+| `RESULT_BBOX_DISJOINT_FROM_INPUT` | The result lies nowhere near its input. Needs `--compare-to` |
+
+A check `result` of `not_evaluated` means it was skipped for want of context, not that it passed. Pass the flags when you know the answer, and read `not_evaluated` as "nobody checked".
+
+`CRS_MISSING` and `CRS_SUSPICIOUS` are advisory in a QC result (exit 0) and fatal in `ingest-vector` / `ingest-raster` (exit 1). Same names, different force.
+
+`export` runs QC over what it wrote unless `--no-qc` is given. For a `--sql` export, pass `--compare-to <source table>` or the extent check cannot run.
 
 ## Hard constraints (non-negotiable)
 
@@ -91,7 +112,9 @@ Schemas derived from it:
 | `llm_gis/ingest_vector.py` | Vector ingest: ogr2ogr + ST_MakeValid + ST_Force2D + GIST index |
 | `llm_gis/ingest_raster.py` | Raster ingest: optional gdalwarp then raster2pgsql pipeline |
 | `llm_gis/run_sql.py` | SQL execution with search_path preamble via psql subprocess |
-| `llm_gis/exporter.py` | Export to GeoPackage/GeoJSON via ogr2ogr |
+| `llm_gis/exporter.py` | Export to GeoPackage/GeoJSON via ogr2ogr; attaches a QC block by default |
+| `llm_gis/qc.py` | QC context, the five check functions, report envelope, dispatch |
+| `llm_gis/qc_collect.py` | QC collectors: file (GDAL + DuckDB) and PostGIS table metrics |
 | `docker-compose.yml` | Service definitions, volume mounts, env vars, health checks |
 | `docker/agent/Dockerfile` | Agent image: GDAL base + postgresql-client + uv |
 

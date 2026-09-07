@@ -214,6 +214,10 @@ bin/export data/outgoing/roads_buffer.geojson --format geojson --table analysis_
 
 Your output files will appear in `data/outgoing/`.
 
+Export attaches a `qc` block by default — deterministic metrics and warnings about the file
+it just wrote (pass `--no-qc` to skip it, `--compare-to <ref>` to check the result's extent
+against a specific source). See `bin/qc` below to run the same checks on demand.
+
 ## Quickstart: Raster Data
 
 Raster workflow is similar:
@@ -247,6 +251,7 @@ bin/ingest-raster data/incoming/elevation.tif --table elevation --dst-crs EPSG:3
 | `bin/describe-table <schema.table>` | Check what was loaded or created |
 | `bin/run-sql <file> --ingest-id <id>` | Run a spatial SQL workflow |
 | `bin/export <path> --format gpkg|geojson --table <schema.table>` | Write a result file |
+| `bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]` | Deterministic metrics and warnings for a dataset or table |
 | `bin/list-ingestions` | Review earlier ingests |
 
 ## What Gets Created Automatically

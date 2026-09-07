@@ -33,6 +33,7 @@ bin/describe-table <schema.table>
 bin/run-sql <file> --ingest-id <id> [--statement-timeout 5min]
 bin/export <path> --format gpkg|geojson --table <schema.table>
 bin/export <path> --format gpkg|geojson --sql "SELECT ..."
+bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]
 ```
 
 ## Source-of-Truth Checkpoint
@@ -64,7 +65,26 @@ bin/export <path> --format gpkg|geojson --sql "SELECT ..."
    → verify rows created
 
 7. bin/export /data/outgoing/result.gpkg --format gpkg --table analysis_<ingest_id>.<result_table>
+   → returns a "qc" block by default (--no-qc to skip); read qc.warnings
+
+8. Report any qc.warnings to the human in plain terms before declaring the job done.
 ```
+
+## Quality Control
+
+QC reports metrics and, where you declared enough context, warnings. It never guesses.
+
+| Code | Meaning |
+|---|---|
+| `CRS_MISSING` | No CRS on the dataset |
+| `CRS_SUSPICIOUS` | The CRS does not match the extent (lon/lat values in a projected CRS, or the reverse) |
+| `GEOGRAPHIC_CRS_FOR_METRIC_OPERATION` | Areas or distances requested from degree-based coordinates. Needs `--metric-op` |
+| `EMPTY_RESULT_UNEXPECTED` | Zero features where features were expected. Needs `--expect-non-empty` |
+| `RESULT_BBOX_DISJOINT_FROM_INPUT` | The result lies nowhere near its input. Needs `--compare-to` |
+
+A check `result` of `not_evaluated` means it was skipped for want of context, not that it passed. `CRS_MISSING` and `CRS_SUSPICIOUS` are advisory in a QC result (exit 0) and fatal in `ingest-vector` / `ingest-raster` (exit 1) — same names, different force.
+
+`export` runs QC over what it wrote unless `--no-qc` is given. For a `--sql` export, pass `--compare-to <source table>` or the extent check cannot run.
 
 ## Ambiguity Rule
 
