@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "S2C_MSIL2A_20260906T104621_N0512_R051_T32VNM",
+      "collection": "sentinel-2-l2a",
+      "bbox": [10.2, 60.0, 11.9, 61.0],
+      "properties": {"datetime": "2026-09-06T10:46:21Z", "eo:cloud_cover": 37.44},
+      "links": [{"rel": "self", "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l2a/items/S2C_MSIL2A_20260906T104621_N0512_R051_T32VNM"}],
+      "assets": {}
+    },
+    {
+      "type": "Feature",
+      "id": "S2B_MSIL2A_20260904T104619_N0512_R051_T32VNM",
+      "collection": "sentinel-2-l2a",
+      "bbox": [10.2, 60.0, 11.9, 61.0],
+      "properties": {"datetime": "2026-09-04T10:46:19Z", "eo:cloud_cover": 5.4},
+      "links": [{"rel": "self", "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l2a/items/S2B_MSIL2A_20260904T104619_N0512_R051_T32VNM"}],
+      "assets": {}
+    }
+  ]
+}
