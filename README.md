@@ -253,6 +253,10 @@ bin/ingest-raster data/incoming/elevation.tif --table elevation --dst-crs EPSG:3
 | `bin/export <path> --format gpkg|geojson --table <schema.table>` | Write a result file |
 | `bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]` | Deterministic metrics and warnings for a dataset or table |
 | `bin/list-ingestions` | Review earlier ingests |
+| `bin/catalog-collections <catalog>` | Collections a STAC catalogue offers |
+| `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
+| `bin/catalog-item <item-url>` | One STAC item |
+| `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
 
 ## What Gets Created Automatically
 

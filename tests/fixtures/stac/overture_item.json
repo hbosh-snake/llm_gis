@@ -1,0 +1,27 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "id": "00000",
+  "collection": "building",
+  "bbox": [-180.0, -84.29460906982422, -86.84698486328125, 14.345832824707031],
+  "properties": {
+    "num_rows": 5007414,
+    "num_row_groups": 256,
+    "datetime": "2026-08-19T00:00:00Z"
+  },
+  "links": [
+    {"rel": "self", "href": "https://stac.overturemaps.org/2026-08-19.0/buildings/building/00000/00000.json"}
+  ],
+  "assets": {
+    "aws": {
+      "href": "https://overturemaps-us-west-2.s3.us-west-2.amazonaws.com/release/2026-08-19.0/theme=buildings/type=building/part-00000-c000.zstd.parquet",
+      "type": "application/vnd.apache.parquet",
+      "roles": ["data"]
+    },
+    "azure": {
+      "href": "https://overturemapswestus2.blob.core.windows.net/release/2026-08-19.0/theme=buildings/type=building/part-00000-c000.zstd.parquet",
+      "type": "application/vnd.apache.parquet",
+      "roles": ["data"]
+    }
+  }
+}

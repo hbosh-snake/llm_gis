@@ -44,6 +44,9 @@ Error codes (`llm_gis/errors.py`):
 | `TABLE_NOT_FOUND` | `describe-table` was given a schema.table that does not exist (or is invisible to the connecting role). |
 | `MISSING_ARGUMENT` | `export` was called with neither `--table` nor `--sql`. |
 | `UNEXPECTED` | Anything else — an unhandled exception, rendered as JSON instead of a traceback. |
+| `CATALOG_UNREACHABLE` | A catalogue could not be reached: DNS, connection, timeout or a 5xx. |
+| `CATALOG_MALFORMED` | A catalogue returned a 200 that is not a STAC document. |
+| `ITEM_NOT_FOUND` | HTTP 404 for an item URL. |
 
 ## Commands
 
@@ -203,6 +206,53 @@ A `result` of `not_evaluated` means the check was skipped for want of declared c
 | `where` | string or null | The attribute predicate applied. |
 | `output_path` | string or null | Where the subset was written, or null if nothing was written. |
 | `engine` | string | Always `duckdb`. Names the engine that ran the operation. |
+
+### `bin/catalog-collections`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `catalog` | string | The resolved endpoint URL. |
+| `mode` | string | `"search"` or `"traversal"`, how the catalogue was read. |
+| `collections` | array | `{id, title, description, license, self, bbox, sub_extents}` per collection. |
+| `truncated` | boolean | True when the request budget stopped the walk early. |
+| `requests_used` | integer | HTTP requests spent. |
+
+### `bin/catalog-search`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `catalog` | string | The resolved endpoint URL. |
+| `mode` | string | `"search"` (server-side) or `"traversal"` (client-side walk). |
+| `bbox` | array or null | The lon/lat WGS84 bbox that was applied. |
+| `datetime` | string or null | The range that was applied. |
+| `items` | array | `{id, collection, self, bbox, datetime, properties, asset_count}` per item. |
+| `items_returned` | integer | Length of `items`. |
+| `requests_used` | integer | HTTP requests spent. |
+| `truncated` | boolean | True when `--limit` or the request budget cut the result short. A truncated result is not a complete one. |
+
+`--bbox` here is **always lon/lat WGS84**, as the STAC specification requires. `bin/duck-query --bbox` is in the data's own CRS. Same flag name, different meaning.
+
+### `bin/catalog-item`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `item_url` | string | The URL that was fetched. |
+| `item` | object | `{id, collection, self, bbox, datetime, properties, asset_count}`. `properties` is verbatim from the catalogue. |
+
+### `bin/catalog-assets`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `item_url` | string | The URL that was fetched. |
+| `item_id` | string | The item's id. |
+| `assets` | array | One entry per asset, see below. |
+| `asset_count` | integer | Length of `assets`. |
+
+Each asset: `{key, href, media_type, roles, advertised, readable_by}`.
+
+`advertised` holds the **publisher's claims**, not measurements: `size_bytes` from `file:size`, plus `num_rows`, `eo:cloud_cover` and `proj:epsg` where the collection supplies them. Never read these as QC metrics.
+
+`readable_by` is `["duckdb"]` for Parquet media types and `[]` otherwise. It says what can open the file, not what should: a `[]` asset such as a COG has no reader in this workspace yet.
 
 ## A note on cost
 

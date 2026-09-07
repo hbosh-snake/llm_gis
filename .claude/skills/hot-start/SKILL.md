@@ -36,6 +36,10 @@ You are working on **llm-gis**: a headless geospatial analysis backend. It inges
 | `bin/export <path> --format gpkg\|geojson --table <schema.table>` | Export table to file |
 | `bin/export <path> --format gpkg\|geojson --sql "SELECT ..."` | Export query to file |
 | `bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]` | Deterministic metrics and warnings for a dataset or table |
+| `bin/catalog-collections <catalog>` | Collections a STAC catalogue offers |
+| `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
+| `bin/catalog-item <item-url>` | One STAC item |
+| `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
 
 ## Standard workflow
 
@@ -68,6 +72,22 @@ A check `result` of `not_evaluated` means it was skipped for want of context, no
 `CRS_MISSING` and `CRS_SUSPICIOUS` are advisory in a QC result (exit 0) and fatal in `ingest-vector` / `ingest-raster` (exit 1). Same names, different force.
 
 `export` runs QC over what it wrote unless `--no-qc` is given. For a `--sql` export, pass `--compare-to <source table>` or the extent check cannot run.
+
+## STAC discovery
+
+Catalogue aliases: `overture` (GeoParquet, static catalogue), `cdse` (Sentinel-2, search
+API, anonymous search but downloads need an account), `earth-search` (Sentinel-2, search
+API). Any https URL also works.
+
+Discovery never downloads. The chain is: `catalog-search` to find items, take an item's
+`self` href, `catalog-assets` on it, then hand a `readable_by: ["duckdb"]` href straight
+to `duck-query`. Nothing is staged or ingested.
+
+**`catalog-search --bbox` is lon/lat WGS84. `duck-query --bbox` is in the data's own CRS.**
+Same flag name, different meaning, and they are designed to be used back to back.
+
+An asset with `readable_by: []` (a COG, say) has no reader in this workspace until Phase 7.
+Values under an asset's `advertised` key are the publisher's claims, not measurements.
 
 ## Hard constraints (non-negotiable)
 
