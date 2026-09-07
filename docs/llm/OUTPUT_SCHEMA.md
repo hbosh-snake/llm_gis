@@ -134,6 +134,9 @@ output.
 | `sql` | string \| null | The query exported, if `--sql` was used. |
 | `feature_count` | integer \| null | Features in the file just written, read back with `ogrinfo -json -ro`. |
 | `crs` | string \| null | CRS of the file just written, read back the same way. |
+| `qc` | object | The full `bin/qc` result over the file just written. Present unless `--no-qc` was given. |
+
+The extent comparison inside `qc` uses `--compare-to` when given, otherwise the `--table` source, and is `not_evaluated` for a `--sql` export with no `--compare-to`.
 
 ### `bin/qc`
 

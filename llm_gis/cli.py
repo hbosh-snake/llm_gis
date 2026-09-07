@@ -122,11 +122,19 @@ def run_sql_cmd(
 @handle_errors
 def export_cmd(
     output_path: Path = typer.Argument(..., help="Output path under /data/outgoing"),
-    output_format: str = typer.Option(..., "--format", help="gpkg or geojson"),
+    output_format: str = typer.Option(..., "--format", help="gpkg, geojson or parquet"),
     table: str | None = typer.Option(None, help="Table name like analysis_...result"),
     sql_query: str | None = typer.Option(None, "--sql", help="Custom SQL query"),
+    qc: bool = typer.Option(True, "--qc/--no-qc", help="Attach a QC block to the result"),
+    compare_to: str | None = typer.Option(None, "--compare-to", help="Table or file whose extent the result should overlap"),
 ) -> None:
-    _emit("export", export_result(output_path, output_format, table=table, sql_query=sql_query))
+    _emit(
+        "export",
+        export_result(
+            output_path, output_format, table=table, sql_query=sql_query,
+            qc=qc, compare_to=compare_to,
+        ),
+    )
 
 
 @app.command("qc")

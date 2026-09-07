@@ -66,3 +66,21 @@ def test_a_missing_table_is_a_gis_error():
     with pytest.raises(GisError) as caught:
         qc_report("raw_nope.nothing", QcContext())
     assert caught.value.code == TABLE_NOT_FOUND
+
+
+@pytest.mark.live
+def test_export_attaches_qc_over_the_real_file(ingested, tmp_path):
+    from llm_gis.exporter import export_result
+
+    schema, table = ingested
+    output = Path("/data/outgoing") / "_live_test_qc" / "aoi.gpkg"
+    try:
+        result = export_result(output, "gpkg", table=f"{schema}.{table}")
+        assert result["qc"]["metrics"]["vector"]["feature_count"] == 4
+        assert result["qc"]["qc_status"] == "ok"
+        bbox_check = next(
+            c for c in result["qc"]["checks"] if c["code"] == "RESULT_BBOX_DISJOINT_FROM_INPUT"
+        )
+        assert bbox_check["result"] == "pass"
+    finally:
+        shutil.rmtree(output.parent, ignore_errors=True)
