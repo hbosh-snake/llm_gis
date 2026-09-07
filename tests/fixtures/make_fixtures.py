@@ -57,6 +57,31 @@ def make_elevation_tif() -> None:
     )
 
 
+def make_dirty_gpkg() -> None:
+    """One self-intersecting polygon and one null attribute, so invalid_count
+    and null_counts see real data rather than zeros."""
+    from shapely.geometry import Polygon
+
+    bowtie = Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
+    gdf = gpd.GeoDataFrame(
+        {"id": [1, 2], "name": ["ok", None]},
+        geometry=[box(10.0, 45.0, 10.1, 45.1), bowtie],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(FIXTURES_DIR / "dirty.gpkg", driver="GPKG")
+
+
+def make_aoi_3d_gpkg() -> None:
+    """Z coordinates, so has_z is exercised against a real 3D layer."""
+    from shapely.geometry import Polygon
+
+    ring = [(10.0, 45.0, 100.0), (10.1, 45.0, 100.0), (10.1, 45.1, 100.0), (10.0, 45.0, 100.0)]
+    gdf = gpd.GeoDataFrame({"id": [1]}, geometry=[Polygon(ring)], crs="EPSG:4326")
+    gdf.to_file(FIXTURES_DIR / "aoi_3d.gpkg", driver="GPKG")
+
+
 if __name__ == "__main__":
     make_aoi_gpkg()
     make_elevation_tif()
+    make_dirty_gpkg()
+    make_aoi_3d_gpkg()

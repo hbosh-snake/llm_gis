@@ -108,3 +108,17 @@ def _bbox(connection: duckdb.DuckDBPyConnection, uri: str, column: str) -> dict[
     if row is None or row[0] is None:
         return None
     return {"minx": row[0], "miny": row[1], "maxx": row[2], "maxy": row[3]}
+
+
+PARQUET_SUFFIXES = {".parquet", ".geoparquet", ".pq"}
+
+
+def reader_sql(uri: str) -> str:
+    """The table function that reads this source, chosen by extension.
+
+    The agent GDAL build has no Parquet driver, so ST_Read cannot open a
+    Parquet file at all; read_parquet cannot open a GeoPackage. One of the
+    two is always right and the extension says which.
+    """
+    suffix = Path(uri.split("?")[0]).suffix.lower()
+    return "read_parquet(?)" if suffix in PARQUET_SUFFIXES else "ST_Read(?)"

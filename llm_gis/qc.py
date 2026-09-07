@@ -8,12 +8,14 @@ given: an unsupplied comparison is not a passing one.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from pyproj import Transformer
 
+from llm_gis import qc_collect
 from llm_gis.common import crs_status, parse_crs, utc_now
-from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS
+from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, INPUT_NOT_FOUND, GisError
 
 SEVERITY = "warning"
 
@@ -130,3 +132,31 @@ def build_report(source: dict, metrics: dict, context: QcContext) -> dict[str, A
         "warnings": warnings,
         "created_at": utc_now(),
     }
+
+
+def resolve_source(ref: str) -> dict[str, str]:
+    """A path if one exists on disk, otherwise schema.table."""
+    path = Path(ref)
+    if path.exists():
+        return {"kind": "file", "ref": ref}
+    if "." in ref and "/" not in ref:
+        schema, table = ref.split(".", 1)
+        return {"kind": "postgis_table", "ref": ref, "schema": schema, "table": table}
+    raise GisError(
+        INPUT_NOT_FOUND,
+        f"No file at {ref}, and it is not a schema.table reference",
+        "Pass a path under /data, or a table like analysis_<ingest_id>.result",
+    )
+
+
+def qc_report(ref: str, context: QcContext, *, exact_stats: bool = False) -> dict[str, Any]:
+    """Collect metrics for one source and judge them against the declared context."""
+    resolved = resolve_source(ref)
+    if resolved["kind"] != "file":
+        raise GisError(
+            INPUT_NOT_FOUND,
+            f"QC over PostGIS tables is not wired yet: {ref}",
+            "Pass a file path",
+        )
+    source, metrics = qc_collect.file_metrics(Path(ref), context.id_column, exact_stats)
+    return build_report(source, metrics, context)
