@@ -6,7 +6,8 @@ publisher advertises, so a caller can decide what is worth opening.
 
 from __future__ import annotations
 
-from llm_gis.errors import INPUT_NOT_FOUND, GisError
+from llm_gis import stac_fetch
+from llm_gis.errors import CATALOG_MALFORMED, INPUT_NOT_FOUND, GisError
 
 CATALOGS = {
     "overture": "https://stac.overturemaps.org/catalog.json",
@@ -93,4 +94,98 @@ def flatten_collection(collection: dict) -> dict:
         "self": _self_href(collection),
         "bbox": bboxes[0] if bboxes else None,
         "sub_extents": list(bboxes[1:]),
+    }
+
+
+DEFAULT_LIMIT = 100
+
+
+def _require_stac(document: dict, url: str) -> dict:
+    """A 200 that parsed is not yet a STAC document."""
+    if not document.get("id") or not document.get("type"):
+        raise GisError(
+            CATALOG_MALFORMED,
+            f"{url} is JSON but not a STAC document",
+            "A STAC item has an 'id' and a 'type'; check the URL",
+        )
+    return document
+
+
+def _mode_for(endpoint: str) -> str:
+    return stac_fetch.detect_mode(stac_fetch.fetch_json(endpoint))
+
+
+def list_collections(catalog: str) -> dict:
+    """Collections a catalogue offers, in whichever mode it supports."""
+    endpoint = resolve_endpoint(catalog)
+    mode = _mode_for(endpoint)
+    if mode == "search":
+        raw = stac_fetch.list_collections_api(endpoint)
+        truncated, used = False, 1
+    else:
+        walked = stac_fetch.traverse(
+            endpoint, collection=None, bbox=None, datetime_spec=None, limit=0,
+            fetch=stac_fetch.fetch_json,
+        )
+        raw, truncated, used = walked["collections"], walked["truncated"], walked["requests_used"]
+    return {
+        "catalog": endpoint,
+        "mode": mode,
+        "collections": [flatten_collection(c) for c in raw],
+        "truncated": truncated,
+        "requests_used": used,
+    }
+
+
+def search_items(
+    catalog: str,
+    *,
+    collection: str | None = None,
+    bbox: list[float] | None = None,
+    datetime_spec: str | None = None,
+    limit: int = DEFAULT_LIMIT,
+) -> dict:
+    """Items matching an area and a time range. Never fetches asset bytes."""
+    endpoint = resolve_endpoint(catalog)
+    mode = _mode_for(endpoint)
+    backend = stac_fetch.search_api if mode == "search" else stac_fetch.traverse
+    found = backend(
+        endpoint, collection=collection, bbox=bbox, datetime_spec=datetime_spec, limit=limit
+    )
+    items = [flatten_item(i) for i in found["items"]]
+    return {
+        "catalog": endpoint,
+        "mode": mode,
+        "bbox": bbox,
+        "datetime": datetime_spec,
+        "items": items,
+        "items_returned": len(items),
+        "requests_used": found["requests_used"],
+        "truncated": found["truncated"],
+    }
+
+
+def get_item(item_url: str) -> dict:
+    """One item, by the 'self' href that catalog-search returns."""
+    document = _require_stac(stac_fetch.fetch_json(item_url), item_url)
+    return {"item_url": item_url, "item": flatten_item(document)}
+
+
+def get_assets(item_url: str, *, role: str | None = None, media_type: str | None = None) -> dict:
+    """An item's assets: hrefs, advertised metadata, and what can read them."""
+    document = _require_stac(stac_fetch.fetch_json(item_url), item_url)
+    properties = document.get("properties") or {}
+    assets = [
+        flatten_asset(key, asset, properties)
+        for key, asset in (document.get("assets") or {}).items()
+    ]
+    if role:
+        assets = [a for a in assets if role in a["roles"]]
+    if media_type:
+        assets = [a for a in assets if a["media_type"] == media_type]
+    return {
+        "item_url": item_url,
+        "item_id": document.get("id"),
+        "assets": sorted(assets, key=lambda a: a["key"]),
+        "asset_count": len(assets),
     }

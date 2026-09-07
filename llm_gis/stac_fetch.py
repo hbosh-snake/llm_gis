@@ -217,3 +217,37 @@ def traverse(
         "requests_used": budget.used,
         "truncated": budget.truncated,
     }
+
+
+def search_api(
+    endpoint: str,
+    *,
+    collection: str | None,
+    bbox: list[float] | None,
+    datetime_spec: str | None,
+    limit: int,
+) -> dict:
+    """Server-side item search. pystac-client objects stay inside this function."""
+    from pystac_client import Client
+
+    client = Client.open(endpoint)
+    search = client.search(
+        collections=[collection] if collection else None,
+        bbox=bbox,
+        datetime=datetime_spec,
+        max_items=limit,
+    )
+    items = list(search.items_as_dicts())
+    return {
+        "items": items,
+        "collections": [],
+        "requests_used": 1,
+        "truncated": len(items) >= limit,
+    }
+
+
+def list_collections_api(endpoint: str) -> list[dict]:
+    """Collection documents from a search API's /collections endpoint."""
+    from pystac_client import Client
+
+    return [c.to_dict() for c in Client.open(endpoint).get_collections()]
