@@ -129,7 +129,20 @@ def matches_datetime(value: str | None, spec: str | None) -> bool:
 
 
 def _sub_extents(collection: dict) -> list[list[float]]:
+    """Per-item sub-extents, aligned to the collection's own item links.
+
+    STAC's documented convention is an overall extent at index 0 followed by
+    one sub-extent per item (elements 1..n). Overture's live catalogue does
+    not follow that: its bbox array has exactly one entry per item, with no
+    leading overall entry. Slicing off element 0 unconditionally shifts every
+    sub-extent one position out of alignment with the item it describes, so
+    the prefilter silently checks the wrong item and can miss real matches.
+    The item count settles which convention this document actually uses.
+    """
     bboxes = ((collection.get("extent") or {}).get("spatial") or {}).get("bbox") or []
+    item_count = len(_links(collection, "item"))
+    if item_count and len(bboxes) == item_count:
+        return list(bboxes)
     return list(bboxes[1:])
 
 

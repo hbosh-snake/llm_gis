@@ -156,6 +156,24 @@ def test_an_unmatched_collection_is_never_descended():
     assert not [u for u in fetcher.urls if u.endswith("/things/0.json")]
 
 
+def test_the_prefilter_aligns_by_item_count_when_no_overall_bbox_is_present():
+    """Overture's live catalogues list exactly one bbox per item, no overall entry.
+
+    Slicing off element 0 as if it were an overall extent shifts every
+    sub-extent one position away from the item it actually describes, so the
+    prefilter would check the wrong item and could miss the real match.
+    """
+    per_item_bboxes = [[float(i), float(i), float(i) + 1, float(i) + 1] for i in range(5)]
+    fetcher = FakeFetcher(_catalogue(5, None))
+    fetcher.documents[COLLECTION]["extent"]["spatial"]["bbox"] = per_item_bboxes
+    result = traverse(
+        ROOT, collection=None, bbox=[2.2, 2.2, 2.4, 2.4], datetime_spec=None, limit=100, fetch=fetcher
+    )
+    item_fetches = [u for u in fetcher.urls if u.startswith("https://fake.invalid/things/") and u != COLLECTION]
+    assert item_fetches == ["https://fake.invalid/things/2.json"]
+    assert {i["id"] for i in result["items"]} == {"00002"}
+
+
 def test_the_budget_object_reports_exhaustion():
     budget = Budget(max_requests=2)
     assert budget.spend() is True

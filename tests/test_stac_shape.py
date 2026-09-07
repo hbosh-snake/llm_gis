@@ -80,3 +80,24 @@ def test_a_collection_flattens_with_its_sub_extents_kept():
     assert flat["license"] == "ODbL-1.0"
     assert flat["bbox"] == [-180.0, -90.0, 180.0, 90.0]
     assert len(flat["sub_extents"]) == 2
+
+
+def test_a_collection_with_no_overall_bbox_gets_one_computed():
+    """Overture's live catalogues list one bbox per item, no leading overall entry.
+
+    Reporting bboxes[0] as the collection extent there would just be the
+    first item's own narrow bbox, not the collection's real extent.
+    """
+    collection = _load("overture_collection")
+    collection["links"] = [
+        {"rel": "self", "href": "https://example.invalid/collection.json"},
+        {"rel": "item", "href": "https://example.invalid/items/0.json"},
+        {"rel": "item", "href": "https://example.invalid/items/1.json"},
+    ]
+    collection["extent"]["spatial"]["bbox"] = [
+        [-10.0, -10.0, 0.0, 0.0],
+        [0.0, 0.0, 10.0, 10.0],
+    ]
+    flat = flatten_collection(collection)
+    assert flat["bbox"] == [-10.0, -10.0, 10.0, 10.0]
+    assert flat["sub_extents"] == [[-10.0, -10.0, 0.0, 0.0], [0.0, 0.0, 10.0, 10.0]]

@@ -83,17 +83,45 @@ def flatten_asset(key: str, asset: dict, properties: dict) -> dict:
     }
 
 
+def _item_count(collection: dict) -> int:
+    return sum(1 for link in collection.get("links") or [] if link.get("rel") == "item")
+
+
+def _union_bbox(boxes: list[list[float]]) -> list[float]:
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
 def flatten_collection(collection: dict) -> dict:
-    """A STAC collection, keeping the per-item sub-extents traversal prefilters on."""
+    """A STAC collection, keeping the per-item sub-extents traversal prefilters on.
+
+    STAC's documented convention is an overall extent at index 0 followed by
+    one sub-extent per item. Overture's live catalogues instead list exactly
+    one bbox per item with no leading overall entry; reporting bboxes[0] as
+    "the" collection extent there would mislead, since it is really just the
+    first item's own narrow bbox. The item count settles which shape a given
+    document actually uses, and the overall extent is computed when absent.
+    """
     bboxes = ((collection.get("extent") or {}).get("spatial") or {}).get("bbox") or []
+    item_count = _item_count(collection)
+    if item_count and len(bboxes) == item_count:
+        overall = _union_bbox(bboxes) if bboxes else None
+        sub_extents = list(bboxes)
+    else:
+        overall = bboxes[0] if bboxes else None
+        sub_extents = list(bboxes[1:])
     return {
         "id": collection.get("id"),
         "title": collection.get("title"),
         "description": collection.get("description"),
         "license": collection.get("license"),
         "self": _self_href(collection),
-        "bbox": bboxes[0] if bboxes else None,
-        "sub_extents": list(bboxes[1:]),
+        "bbox": overall,
+        "sub_extents": sub_extents,
     }
 
 
