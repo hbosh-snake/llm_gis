@@ -135,6 +135,19 @@ output.
 | `feature_count` | integer \| null | Features in the file just written, read back with `ogrinfo -json -ro`. |
 | `crs` | string \| null | CRS of the file just written, read back the same way. |
 
+### `bin/qc`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `qc_status` | string | `"ok"` or `"warning"`. The verdict on the data. Distinct from `status`, which reports only that the command ran. |
+| `source` | object | `kind` (`file` or `postgis_table`), `ref`, `dataset_kind` (`vector` or `raster`). |
+| `metrics` | object | `crs`, `bbox`, and one of `vector` or `raster`; the other is `null`. |
+| `checks` | array | Every check: `code`, `severity`, `result` (`pass`, `warn`, `not_evaluated`), `message`. |
+| `warnings` | array | The `warn` subset, as `code`, `message`, `severity`. |
+| `created_at` | string | UTC timestamp. |
+
+A `result` of `not_evaluated` means the check was skipped for want of declared context, not that it passed. `CRS_MISSING` and `CRS_SUSPICIOUS` appear here as advisory warnings with exit code 0; the same codes raised by `ingest-vector` and `ingest-raster` are fatal errors with exit code 1. A code inside `warnings` is an observation; a code inside a `{"status": "error"}` object is a refusal.
+
 ### `bin/doctor`
 
 | Key | Type | Meaning |

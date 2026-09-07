@@ -159,3 +159,13 @@ def qc_report(ref: str, context: QcContext, *, exact_stats: bool = False) -> dic
             resolved["schema"], resolved["table"], context.id_column
         )
     return build_report(source, metrics, context)
+
+
+def reference_for(ref: str) -> dict[str, Any]:
+    """The CRS and extent of a comparison source, collected the same way as the subject."""
+    resolved = resolve_source(ref)
+    if resolved["kind"] == "file":
+        _, metrics = qc_collect.file_metrics(Path(ref), None, False)
+    else:
+        _, metrics = qc_collect.table_metrics(resolved["schema"], resolved["table"], None)
+    return {"ref": ref, "crs": metrics["crs"], "bbox": metrics["bbox"]}
