@@ -10,6 +10,7 @@ import typer
 from typer._click.exceptions import UsageError
 
 from llm_gis.describe import describe_table
+from llm_gis.duck import describe as duck_describe
 from llm_gis.doctor import doctor_report
 from llm_gis.errors import UNEXPECTED, GisError
 from llm_gis.exporter import export_result
@@ -17,6 +18,7 @@ from llm_gis.ingest_raster import ingest_raster
 from llm_gis.ingest_vector import ingest_vector
 from llm_gis.inspect import inspect_dataset
 from llm_gis.list_ingestions import list_ingestions
+from llm_gis.query import query as duck_query
 from llm_gis.run_sql import run_sql_file
 from llm_gis.stage import stage_input
 
@@ -124,6 +126,45 @@ def export_cmd(
     sql_query: str | None = typer.Option(None, "--sql", help="Custom SQL query"),
 ) -> None:
     _emit("export", export_result(output_path, output_format, table=table, sql_query=sql_query))
+
+
+@app.command("duck-describe")
+@handle_errors
+def duck_describe_cmd(
+    uri: str = typer.Argument(..., help="Path or URL of a Parquet/GeoParquet source"),
+) -> None:
+    """Schema, row count, CRS and bbox of a Parquet source, without materialising it."""
+    _emit("duck-describe", duck_describe(uri))
+
+
+@app.command("duck-query")
+@handle_errors
+def duck_query_cmd(
+    uri: str = typer.Argument(..., help="Path or URL of a Parquet/GeoParquet source"),
+    bbox: str | None = typer.Option(None, "--bbox", help="minx,miny,maxx,maxy in the source CRS"),
+    where: str | None = typer.Option(None, "--where", help="SQL predicate on attributes"),
+    columns: str | None = typer.Option(None, "--columns", help="Comma-separated columns to keep"),
+    limit: int | None = typer.Option(None, "--limit", help="Maximum rows"),
+    output_path: Path | None = typer.Option(None, "--output", help="Write matches to this GeoParquet file"),
+) -> None:
+    """Filter a Parquet source by bbox and attributes, optionally writing the subset."""
+    parsed_bbox = None
+    if bbox:
+        parts = [p.strip() for p in bbox.split(",")]
+        if len(parts) != 4:
+            raise typer.BadParameter("--bbox must be minx,miny,maxx,maxy")
+        parsed_bbox = tuple(float(p) for p in parts)
+    _emit(
+        "duck-query",
+        duck_query(
+            uri,
+            bbox=parsed_bbox,
+            where=where,
+            columns=[c.strip() for c in columns.split(",")] if columns else None,
+            limit=limit,
+            output_path=output_path,
+        ),
+    )
 
 
 @app.command("doctor")

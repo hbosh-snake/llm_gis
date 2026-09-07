@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from llm_gis.common import crs_text_from_ogr_coordinate_system, ensure_workspace_dirs, pg_gdal_dsn, run_command
+from llm_gis.common import crs_text_from_ogr_coordinate_system, ensure_workspace_dirs, pg_gdal_dsn, run_command, work_root
+from llm_gis.duck import connect as duck_connect, describe as duck_describe
 from llm_gis.errors import MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
 
 
@@ -18,6 +19,14 @@ def _written_vector_summary(path: Path) -> tuple[int | None, str | None]:
     fields = layer.get("geometryFields") or []
     crs_text = crs_text_from_ogr_coordinate_system(fields[0].get("coordinateSystem") or {}) if fields else None
     return layer.get("featureCount"), crs_text
+
+
+def _to_geoparquet(source: Path, destination: Path) -> None:
+    """Convert a written GeoPackage to GeoParquet through DuckDB's spatial reader."""
+    connection = duck_connect()
+    connection.execute(
+        f"COPY (SELECT * FROM ST_Read('{source}')) TO '{destination}' (FORMAT PARQUET)"
+    )
 
 
 def export_result(
@@ -42,21 +51,37 @@ def export_result(
         gdal_format = "GPKG"
     elif fmt == "geojson":
         gdal_format = "GeoJSON"
+    elif fmt in {"parquet", "geoparquet"}:
+        gdal_format = "GPKG"  # written first, then converted; see _to_geoparquet
     else:
         raise GisError(
             UNSUPPORTED_FORMAT,
             f"Unsupported export format: {output_format}",
-            "Use --format gpkg or --format geojson",
+            "Use --format gpkg, geojson or parquet",
         )
 
-    cmd = ["ogr2ogr", "-f", gdal_format, str(output_path), pg_gdal_dsn()]
+    # This GDAL build has no Parquet driver, so DuckDB converts a temporary
+    # GeoPackage rather than adding a heavy Arrow dependency for one format.
+    wants_parquet = fmt in {"parquet", "geoparquet"}
+    written_path = (
+        work_root() / "tmp" / f"{output_path.stem}.export.gpkg" if wants_parquet else output_path
+    )
+    cmd = ["ogr2ogr", "-f", gdal_format, str(written_path), pg_gdal_dsn()]
     if sql_query:
         cmd.extend(["-sql", sql_query])
     elif table:
         cmd.append(table)
 
     run_command(cmd)
-    feature_count, crs = _written_vector_summary(output_path)
+
+    if wants_parquet:
+        _to_geoparquet(written_path, output_path)
+        written_path.unlink(missing_ok=True)
+    if wants_parquet:
+        written = duck_describe(str(output_path))
+        feature_count, crs = written["row_count"], written["crs"]
+    else:
+        feature_count, crs = _written_vector_summary(output_path)
     return {
         "output_path": str(output_path),
         "output_format": fmt,

@@ -144,3 +144,15 @@ def test_pipeline_results_carry_the_envelope_and_real_counts(contract_paths):
     doctor_result = _invoke_ok(runner, ["doctor"])
     assert doctor_result["status"] == "ok"
     assert doctor_result["command"] == "doctor"
+
+
+@pytest.mark.live
+def test_export_to_geoparquet(tmp_path):
+    """GDAL here has no Parquet driver, so this exercises the DuckDB conversion."""
+    from llm_gis.duck import describe as duck_describe
+    from llm_gis.exporter import export_result
+
+    out = tmp_path / "roads.parquet"
+    result = export_result(out, "parquet", sql_query="SELECT 1 AS n, ST_MakePoint(10, 45) AS geom")
+    assert result["feature_count"] == 1
+    assert duck_describe(str(out))["row_count"] == 1
