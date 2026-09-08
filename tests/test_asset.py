@@ -104,3 +104,39 @@ def test_catalog_round_trips_to_the_json_its_callers_already_know():
     assert set(catalog._to_asset_json(asset)) == {
         "key", "href", "media_type", "roles", "advertised", "readable_by"
     }
+
+
+from llm_gis import duck
+
+PARQUET = str(FIXTURES / "aoi.parquet")
+
+
+def test_duck_describe_still_emits_its_historic_keys():
+    report = duck.describe(PARQUET)
+
+    assert set(report) == {"uri", "row_count", "columns", "geometry_column", "crs", "bbox"}
+    assert report["row_count"] == 4
+    assert report["geometry_column"] == "geom"
+    assert report["crs"] == "EPSG:4326"
+
+
+def test_duck_serializer_maps_canonical_names_back():
+    asset = duck._build_asset(
+        "/tmp/x.parquet",
+        [Column("fid", "BIGINT")],
+        4,
+        "geom",
+        {"minx": 0.0, "miny": 0.0, "maxx": 1.0, "maxy": 1.0},
+        "EPSG:4326",
+    )
+
+    assert asset.record_count == 4
+    assert asset.provenance.source_type == LOCAL_FILE
+    assert duck._to_describe(asset)["row_count"] == 4
+    assert duck._to_describe(asset)["columns"] == [{"name": "fid", "type": "BIGINT"}]
+
+
+def test_duck_marks_a_remote_uri_as_remote():
+    asset = duck._build_asset("s3://bucket/part-0.parquet", [], 0, None, None, None)
+
+    assert asset.provenance.source_type == REMOTE_URI

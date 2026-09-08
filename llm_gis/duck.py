@@ -14,6 +14,7 @@ from typing import Any
 
 import duckdb
 
+from llm_gis.asset import LOCAL_FILE, REMOTE_URI, Asset, Column, Provenance
 from llm_gis.common import normalize_crs
 from llm_gis.errors import COMMAND_FAILED, GisError
 
@@ -41,7 +42,7 @@ def describe(uri: str) -> dict[str, Any]:
     connection = connect()
     try:
         columns = [
-            {"name": name, "type": type_}
+            Column(name, type_)
             for name, type_ in connection.execute(
                 "SELECT column_name, column_type FROM (DESCRIBE SELECT * FROM read_parquet(?))", [uri]
             ).fetchall()
@@ -56,19 +57,47 @@ def describe(uri: str) -> dict[str, Any]:
         ) from error
 
     meta = _geo_metadata(connection, uri)
-    geometry = next((c for c in columns if c["type"].upper().startswith("GEOMETRY")), None)
-    bbox = _bbox(connection, uri, geometry["name"]) if geometry else None
-    crs = _crs_from_type(geometry["type"]) if geometry else None
+    geometry = next((c for c in columns if c.type.upper().startswith("GEOMETRY")), None)
+    bbox = _bbox(connection, uri, geometry.name) if geometry else None
+    crs = _crs_from_type(geometry.type) if geometry else None
     if crs is None and meta:
         crs = _crs_from_geo_metadata(meta)
 
+    return _to_describe(
+        _build_asset(uri, columns, row_count, geometry.name if geometry else None, bbox, crs)
+    )
+
+
+def _build_asset(
+    uri: str,
+    columns: list[Column],
+    row_count: int,
+    geometry_column: str | None,
+    bbox: dict[str, float] | None,
+    crs: str | None,
+) -> Asset:
+    """What DuckDB measured, as an Asset. Everything here was read, not advertised."""
+    source_type = REMOTE_URI if uri.startswith(("http://", "https://", "s3://")) else LOCAL_FILE
+    return Asset(
+        uri=uri,
+        provenance=Provenance(source_type),
+        crs=crs,
+        bbox=bbox,
+        record_count=row_count,
+        geometry_column=geometry_column,
+        columns=columns,
+    )
+
+
+def _to_describe(asset: Asset) -> dict[str, Any]:
+    """The historic duck-describe keys, unchanged."""
     return {
-        "uri": uri,
-        "row_count": row_count,
-        "columns": columns,
-        "geometry_column": geometry["name"] if geometry else None,
-        "crs": crs,
-        "bbox": bbox,
+        "uri": asset.uri,
+        "row_count": asset.record_count,
+        "columns": [{"name": c.name, "type": c.type} for c in asset.columns],
+        "geometry_column": asset.geometry_column,
+        "crs": asset.crs,
+        "bbox": asset.bbox,
     }
 
 
