@@ -140,3 +140,49 @@ def test_duck_marks_a_remote_uri_as_remote():
     asset = duck._build_asset("s3://bucket/part-0.parquet", [], 0, None, None, None)
 
     assert asset.provenance.source_type == REMOTE_URI
+
+
+from llm_gis.inspect import inspect_dataset
+
+
+def test_inspect_vector_still_emits_its_historic_keys(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_GIS_WORK_ROOT", str(tmp_path))
+    report = inspect_dataset(FIXTURES / "aoi.gpkg")
+
+    assert set(report) == {
+        "dataset_kind", "input_path", "layers", "detected_crs",
+        "extent", "crs_status", "crs_reasons", "raw", "created_at",
+    }
+    assert report["dataset_kind"] == "vector"
+    assert report["layers"][0]["feature_count"] == 4
+    assert "row_count" not in report
+    assert "uri" not in report
+
+
+def test_inspect_raster_still_emits_its_historic_keys(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_GIS_WORK_ROOT", str(tmp_path))
+    report = inspect_dataset(FIXTURES / "elevation.tif")
+
+    assert set(report) == {
+        "dataset_kind", "input_path", "size", "bands", "detected_crs",
+        "extent", "crs_status", "crs_reasons", "raw", "created_at",
+    }
+    assert report["size"] == [20, 20]
+    assert report["bands"][0]["nodata"] == -9999.0
+
+
+def test_inspect_leaves_record_count_and_hash_empty(monkeypatch, tmp_path):
+    """inspect has only per-layer counts, and describing a file does not hash it."""
+    monkeypatch.setenv("LLM_GIS_WORK_ROOT", str(tmp_path))
+    import json as _json
+
+    from llm_gis.common import run_command
+    from llm_gis.inspect import _build_vector_asset
+
+    payload = _json.loads(run_command(["ogrinfo", "-json", "-ro", str(FIXTURES / "aoi.gpkg")]))
+    asset = _build_vector_asset(FIXTURES / "aoi.gpkg", payload)
+
+    assert asset.record_count is None
+    assert asset.layers[0].feature_count == 4
+    assert asset.provenance.content_hash is None
+    assert asset.provenance.source_type == LOCAL_FILE
