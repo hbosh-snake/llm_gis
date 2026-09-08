@@ -21,6 +21,16 @@ You are working on **llm-gis**: a headless geospatial analysis backend. It inges
 - Docker Compose (two services: `db` and `agent`)
 - Build backend: hatchling
 
+## The asset descriptor
+
+`llm_gis/asset.py` holds `Asset`, the one shape `inspect`, `duck-describe` and
+`catalog-assets` all build internally. Top-level fields carry measurements only;
+a publisher's claims stay under `advertised` and are never promoted. Provenance
+travels with the asset: source type, retrieval time, catalogue and item id where
+applicable, and a `content_hash` slot that only producers which already hash
+their input fill. Each command serializes the asset back to its own historic JSON
+keys, so the descriptor is internal and no output changed when it landed.
+
 ## Commands
 
 | Command | Purpose |
