@@ -61,3 +61,46 @@ def test_two_assets_do_not_share_mutable_defaults():
     first.roles.append("data")
 
     assert Asset("b", Provenance(REMOTE_URI)).roles == []
+
+
+import json
+from pathlib import Path
+
+from llm_gis import catalog
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _item():
+    """The same recorded item tests/test_stac_shape.py flattens."""
+    return json.loads((FIXTURES / "stac" / "overture_item.json").read_text(encoding="utf-8"))
+
+
+def test_catalog_builds_an_asset_carrying_its_stac_provenance():
+    item = _item()
+    asset = catalog.build_asset(
+        "aws",
+        item["assets"]["aws"],
+        item["properties"],
+        item_url="https://fake.invalid/item.json",
+        item_id=item["id"],
+    )
+
+    assert asset.uri == item["assets"]["aws"]["href"]
+    assert asset.provenance.source_type == STAC_ASSET
+    assert asset.provenance.asset_key == "aws"
+    assert asset.provenance.item_id == item["id"]
+    assert asset.provenance.catalog_url == "https://fake.invalid/item.json"
+    assert asset.provenance.content_hash is None
+
+
+def test_catalog_round_trips_to_the_json_its_callers_already_know():
+    item = _item()
+    asset = catalog.build_asset("aws", item["assets"]["aws"], item["properties"])
+
+    assert catalog._to_asset_json(asset) == catalog.flatten_asset(
+        "aws", item["assets"]["aws"], item["properties"]
+    )
+    assert set(catalog._to_asset_json(asset)) == {
+        "key", "href", "media_type", "roles", "advertised", "readable_by"
+    }
