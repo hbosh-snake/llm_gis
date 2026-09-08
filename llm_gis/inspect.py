@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from llm_gis.asset import LOCAL_FILE, Asset, Band, Layer, Provenance
 from llm_gis.common import (
     normalize_crs,
     crs_status,
@@ -59,6 +60,89 @@ def _extract_raster_extent(payload: dict[str, Any]) -> dict[str, float] | None:
     return {"minx": min(xs), "maxx": max(xs), "miny": min(ys), "maxy": max(ys)}
 
 
+def _build_vector_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
+    """What ogrinfo measured, as an Asset.
+
+    `record_count` stays None: there is only a count per layer here, and summing
+    them would publish a number no caller has ever been given.
+    """
+    extent = _extract_vector_extent(payload)
+    first_layer = (payload.get("layers") or [{}])[0]
+    field = (first_layer.get("geometryFields") or [{}])[0]
+    crs_text = normalize_crs(crs_text_from_ogr_coordinate_system(field.get("coordinateSystem") or {}))
+    status, reasons = crs_status(crs_text, extent)
+    return Asset(
+        uri=str(input_path),
+        provenance=Provenance(LOCAL_FILE, retrieved_at=utc_now()),
+        dataset_kind="vector",
+        crs=crs_text,
+        crs_status=status,
+        crs_reasons=reasons,
+        bbox=extent,
+        layers=[
+            Layer(
+                layer.get("name"),
+                ((layer.get("geometryFields") or [{}])[0] or {}).get("type"),
+                layer.get("featureCount"),
+            )
+            for layer in payload.get("layers", [])
+        ],
+        raw=payload,
+    )
+
+
+def _build_raster_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
+    """What gdalinfo measured, as an Asset."""
+    extent = _extract_raster_extent(payload)
+    crs_text = normalize_crs(payload.get("coordinateSystem", {}).get("wkt"))
+    status, reasons = crs_status(crs_text, extent)
+    return Asset(
+        uri=str(input_path),
+        provenance=Provenance(LOCAL_FILE, retrieved_at=utc_now()),
+        dataset_kind="raster",
+        crs=crs_text,
+        crs_status=status,
+        crs_reasons=reasons,
+        bbox=extent,
+        size=payload.get("size"),
+        bands=[
+            Band(band.get("band"), band.get("type"), band.get("noDataValue"))
+            for band in payload.get("bands", [])
+        ],
+        raw=payload,
+    )
+
+
+def _to_report(asset: Asset) -> dict[str, Any]:
+    """The historic inspect keys, unchanged.
+
+    Canonical names map back here: uri to input_path, bbox to extent, crs to
+    detected_crs, retrieved_at to created_at. The vector and raster branches
+    differ only in whether layers or size-and-bands appear.
+    """
+    report: dict[str, Any] = {
+        "dataset_kind": asset.dataset_kind,
+        "input_path": asset.uri,
+    }
+    if asset.dataset_kind == "vector":
+        report["layers"] = [
+            {"name": l.name, "geometry_type": l.geometry_type, "feature_count": l.feature_count}
+            for l in asset.layers
+        ]
+    else:
+        report["size"] = asset.size
+        report["bands"] = [
+            {"band": b.band, "type": b.type, "nodata": b.nodata} for b in asset.bands
+        ]
+    report["detected_crs"] = asset.crs
+    report["extent"] = asset.bbox
+    report["crs_status"] = asset.crs_status
+    report["crs_reasons"] = asset.crs_reasons
+    report["raw"] = asset.raw
+    report["created_at"] = asset.provenance.retrieved_at
+    return report
+
+
 def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str, Any]:
     ensure_workspace_dirs()
     if not input_path.exists():
@@ -89,53 +173,10 @@ def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str,
         )
 
     if vector_out:
-        extent = _extract_vector_extent(vector_out)
-        first_layer = (vector_out.get("layers") or [{}])[0]
-        field = (first_layer.get("geometryFields") or [{}])[0]
-        coordinate_system = field.get("coordinateSystem") or {}
-        crs_text = normalize_crs(crs_text_from_ogr_coordinate_system(coordinate_system))
-        status, reasons = crs_status(crs_text, extent)
-        report = {
-            "dataset_kind": "vector",
-            "input_path": str(input_path),
-            "layers": [
-                {
-                    "name": layer.get("name"),
-                    "geometry_type": ((layer.get("geometryFields") or [{}])[0] or {}).get("type"),
-                    "feature_count": layer.get("featureCount"),
-                }
-                for layer in vector_out.get("layers", [])
-            ],
-            "detected_crs": crs_text,
-            "extent": extent,
-            "crs_status": status,
-            "crs_reasons": reasons,
-            "raw": vector_out,
-            "created_at": utc_now(),
-        }
+        asset = _build_vector_asset(input_path, vector_out)
     else:
-        extent = _extract_raster_extent(raster_out or {})
-        crs_text = normalize_crs((raster_out or {}).get("coordinateSystem", {}).get("wkt"))
-        status, reasons = crs_status(crs_text, extent)
-        report = {
-            "dataset_kind": "raster",
-            "input_path": str(input_path),
-            "size": (raster_out or {}).get("size"),
-            "bands": [
-                {
-                    "band": band.get("band"),
-                    "type": band.get("type"),
-                    "nodata": band.get("noDataValue"),
-                }
-                for band in (raster_out or {}).get("bands", [])
-            ],
-            "detected_crs": crs_text,
-            "extent": extent,
-            "crs_status": status,
-            "crs_reasons": reasons,
-            "raw": raster_out,
-            "created_at": utc_now(),
-        }
+        asset = _build_raster_asset(input_path, raster_out or {})
+    report = _to_report(asset)
 
     if ingest_id:
         write_json(work_root() / "reports" / f"{ingest_id}.json", report)

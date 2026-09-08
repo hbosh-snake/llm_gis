@@ -7,6 +7,7 @@ publisher advertises, so a caller can decide what is worth opening.
 from __future__ import annotations
 
 from llm_gis import stac_fetch
+from llm_gis.asset import STAC_ASSET, Asset, Provenance
 from llm_gis.errors import CATALOG_MALFORMED, INPUT_NOT_FOUND, GisError
 
 CATALOGS = {
@@ -67,20 +68,59 @@ def flatten_item(item: dict) -> dict:
     }
 
 
-def flatten_asset(key: str, asset: dict, properties: dict) -> dict:
-    """One asset, with the publisher's claims quarantined under 'advertised'."""
+def build_asset(
+    key: str,
+    asset: dict,
+    properties: dict,
+    *,
+    item_url: str | None = None,
+    item_id: str | None = None,
+) -> Asset:
+    """One STAC asset as an Asset, with the publisher's claims left under `advertised`.
+
+    Nothing here is measured: no asset bytes are fetched, so `crs`, `bbox` and
+    `record_count` stay None however much the publisher advertises.
+    """
     advertised = {"size_bytes": asset.get("file:size")}
     for name in ADVERTISED_PROPERTIES:
         if name in properties:
             advertised[name] = properties[name]
+    return Asset(
+        uri=asset.get("href"),
+        provenance=Provenance(
+            STAC_ASSET, catalog_url=item_url, item_id=item_id, asset_key=key
+        ),
+        media_type=asset.get("type"),
+        roles=asset.get("roles") or [],
+        readable_by=readable_by(asset.get("type")),
+        advertised=advertised,
+    )
+
+
+def _to_asset_json(asset: Asset) -> dict:
+    """The historic per-asset keys, unchanged."""
     return {
-        "key": key,
-        "href": asset.get("href"),
-        "media_type": asset.get("type"),
-        "roles": asset.get("roles") or [],
-        "advertised": advertised,
-        "readable_by": readable_by(asset.get("type")),
+        "key": asset.provenance.asset_key,
+        "href": asset.uri,
+        "media_type": asset.media_type,
+        "roles": asset.roles,
+        "advertised": asset.advertised,
+        "readable_by": asset.readable_by,
     }
+
+
+def flatten_asset(
+    key: str,
+    asset: dict,
+    properties: dict,
+    *,
+    item_url: str | None = None,
+    item_id: str | None = None,
+) -> dict:
+    """One asset, with the publisher's claims quarantined under 'advertised'."""
+    return _to_asset_json(
+        build_asset(key, asset, properties, item_url=item_url, item_id=item_id)
+    )
 
 
 def _item_count(collection: dict) -> int:
@@ -204,7 +244,7 @@ def get_assets(item_url: str, *, role: str | None = None, media_type: str | None
     document = _require_stac(stac_fetch.fetch_json(item_url), item_url)
     properties = document.get("properties") or {}
     assets = [
-        flatten_asset(key, asset, properties)
+        flatten_asset(key, asset, properties, item_url=item_url, item_id=document.get("id"))
         for key, asset in (document.get("assets") or {}).items()
     ]
     if role:
