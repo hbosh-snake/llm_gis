@@ -207,6 +207,25 @@ A `result` of `not_evaluated` means the check was skipped for want of declared c
 | `output_path` | string or null | Where the subset was written, or null if nothing was written. |
 | `engine` | string | Always `duckdb`. Names the engine that ran the operation. |
 
+### `bin/plan`
+
+Explains a route. Executes nothing: no file is opened, no database is contacted, and a
+source that does not exist plans exactly like one that does.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `operation` | string | `"query"`, `"analyse"` or `"export"`, as given. |
+| `source` | object | `{uri, format, locality, readers}` — what the URI's text alone says. |
+| `strategy` | string or null | `"duckdb"`, `"postgis"`, or null when no route exists. |
+| `reason` | string | Why that engine, in one sentence. Always about persistence or capability, never performance. |
+| `fallback` | object or null | `{strategy, requires, loses}` — the other viable engine, what it costs, what it gives up. |
+| `overridden` | string or null | `"engine"` when `--engine` beat the rules, else null. |
+| `warnings` | array | `{code, message, severity}`, as `bin/qc` uses. |
+| `blocked_by` | object or null | `{code, message, suggested_action}` when `strategy` is null. |
+| `steps` | array | `{command, argv, why}` per step. `argv` is what follows `bin/`, ready to paste. |
+
+A blocked plan exits 0. "There is no route" is an answer to the question asked, not a failure.
+
 ### `bin/catalog-collections`
 
 | Key | Type | Meaning |

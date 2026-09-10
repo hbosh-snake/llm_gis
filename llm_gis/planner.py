@@ -326,3 +326,71 @@ def steps(
              "write the result out and QC it")
     )
     return plan
+
+
+def plan(
+    operation: str,
+    uri: str,
+    *,
+    materialise: bool = False,
+    engine: str | None = None,
+    bbox: str | None = None,
+    where: str | None = None,
+    output: str | None = None,
+    output_format: str = "gpkg",
+    sql_path: str | None = None,
+    asset: dict | None = None,
+) -> dict:
+    """The whole planning answer: the route, the argument for it, and the steps."""
+    source = classify(uri)
+    decided = route(operation, source, materialise=materialise, engine=engine)
+    decided.warnings.extend(_asset_warnings(operation, asset))
+    rendered = steps(
+        operation, source, decided,
+        bbox=bbox, where=where, output=output, output_format=output_format,
+        sql_path=sql_path,
+    )
+    return {
+        "operation": operation,
+        "source": {
+            "uri": source.uri,
+            "format": source.format,
+            "locality": source.locality,
+            "readers": source.readers,
+        },
+        "strategy": decided.strategy,
+        "reason": decided.reason,
+        "fallback": decided.fallback,
+        "overridden": decided.overridden,
+        "warnings": decided.warnings,
+        "blocked_by": decided.blocked_by,
+        "steps": [{"command": s.command, "argv": s.argv, "why": s.why} for s in rendered],
+    }
+
+
+def _asset_warnings(operation: str, asset: dict | None) -> list[dict]:
+    """Warnings a measured Asset supports and a URI cannot. Never a route change.
+
+    Only measured top-level fields are read. A publisher's `advertised` claims are
+    not measurements and Phase 4 quarantined them for that reason.
+    """
+    if not asset:
+        return []
+    warnings = []
+    if operation == ANALYSE and asset.get("crs_status") == "suspicious":
+        warnings.append(
+            {
+                "code": "CRS_SUSPICIOUS",
+                "message": f"The described source reports a suspicious CRS: {asset.get('crs')}",
+                "severity": "warning",
+            }
+        )
+    if asset.get("record_count") == 0:
+        warnings.append(
+            {
+                "code": "EMPTY_SOURCE",
+                "message": "The described source measured zero records",
+                "severity": "warning",
+            }
+        )
+    return warnings
