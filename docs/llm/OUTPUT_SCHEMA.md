@@ -267,11 +267,18 @@ A blocked plan exits 0. "There is no route" is an answer to the question asked, 
 | `assets` | array | One entry per asset, see below. |
 | `asset_count` | integer | Length of `assets`. |
 
-Each asset: `{key, href, media_type, roles, advertised, readable_by}`.
+Each asset: `{key, href, media_type, roles, advertised, readable_by, readers}`.
 
 `advertised` holds the **publisher's claims**, not measurements: `size_bytes` from `file:size`, plus `num_rows`, `eo:cloud_cover` and `proj:epsg` where the collection supplies them. Never read these as QC metrics.
 
 `readable_by` is `["duckdb"]` for Parquet media types and `[]` otherwise. It says what can open the file, not what should: a `[]` asset such as a COG has no reader in this workspace yet.
+
+`readable_by` and `readers` differ on purpose. `readable_by` answers "can `duck-query`
+consume this href directly", which for a GeoPackage is no. `readers` answers "what could
+open this at all", which for the same GeoPackage is `["duckdb", "postgis"]` — DuckDB via
+`ST_Read`, PostGIS via `ingest-vector`. `readers` comes from `planner.readers`, the one
+place format-to-engine knowledge lives; `readable_by` is a narrower projection of it, kept
+as a compatibility surface.
 
 ## A note on cost
 

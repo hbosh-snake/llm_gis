@@ -57,6 +57,10 @@ bin/export <output_path> --format gpkg|geojson --sql "SELECT ..."
 
 ## Standard workflow
 
+When a job could go either way — a local vector file can be filtered in place or ingested —
+run `bin/plan query <source>` first. It prints the route, the reason, and the steps, and runs
+nothing.
+
 ```
 1. bin/inspect /data/incoming/<file>
    → check "crs_status": "ok" / "missing" / "suspicious"

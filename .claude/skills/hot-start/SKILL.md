@@ -50,6 +50,7 @@ keys, so the descriptor is internal and no output changed when it landed.
 | `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
 | `bin/catalog-item <item-url>` | One STAC item |
 | `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
+| `bin/plan <query\|analyse\|export> <source> [--bbox] [--where] [--materialise] [--engine]` | Explain which engine (duckdb/postgis) should run a job, why, and the exact steps. Executes nothing |
 
 ## Standard workflow
 
@@ -145,6 +146,7 @@ Schemas derived from it:
 | `llm_gis/exporter.py` | Export to GeoPackage/GeoJSON via ogr2ogr; attaches a QC block by default |
 | `llm_gis/qc.py` | QC context, the five check functions, report envelope, dispatch |
 | `llm_gis/qc_collect.py` | QC collectors: file (GDAL + DuckDB) and PostGIS table metrics |
+| `llm_gis/planner.py` | which engine runs a job and why. Pure: classifies a URI by suffix and scheme, applies a small rule table whose only axis is whether the result must outlive the command, and renders the decision as a `bin/*` step list. `bin/plan` prints it and executes nothing. `planner.readers` is the single authoritative format-to-engine table; `catalog.readable_by` is a projection of it. |
 | `docker-compose.yml` | Service definitions, volume mounts, env vars, health checks |
 | `docker/agent/Dockerfile` | Agent image: GDAL base + postgresql-client + uv |
 
