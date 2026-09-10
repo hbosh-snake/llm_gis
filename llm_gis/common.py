@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from pyproj import CRS
+from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError
 
 from llm_gis.errors import (
@@ -235,6 +235,23 @@ def normalize_crs(crs_text: str | None) -> str | None:
         return f"EPSG:{epsg}"
     authority = crs.to_authority()
     return f"{authority[0]}:{authority[1]}" if authority else crs_text
+
+
+def reproject_bbox(
+    bbox: dict[str, float] | None, src_crs: str | None, dst_crs: str | None
+) -> dict[str, float] | None:
+    """Transform a bbox, densifying the edges so a curved edge is not clipped off.
+
+    Shared by QC's disjointness check and by the raster reader, which reports every
+    window in its native CRS and in 4326 so a caller can compare the two.
+    """
+    if bbox is None or not src_crs or not dst_crs or src_crs == dst_crs:
+        return bbox
+    transformer = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+    minx, miny, maxx, maxy = transformer.transform_bounds(
+        bbox["minx"], bbox["miny"], bbox["maxx"], bbox["maxy"]
+    )
+    return {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy}
 
 
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:

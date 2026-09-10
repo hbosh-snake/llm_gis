@@ -11,10 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from pyproj import Transformer
-
 from llm_gis import qc_collect
-from llm_gis.common import crs_status, parse_crs, utc_now
+from llm_gis.common import crs_status, parse_crs, reproject_bbox, utc_now
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, INPUT_NOT_FOUND, GisError
 
 SEVERITY = "warning"
@@ -32,17 +30,6 @@ class QcContext:
 
 def _result(code: str, result: str, message: str) -> dict[str, Any]:
     return {"code": code, "severity": SEVERITY, "result": result, "message": message}
-
-
-def reproject_bbox(bbox: dict[str, float] | None, src_crs: str | None, dst_crs: str | None) -> dict[str, float] | None:
-    """Transform a bbox, densifying the edges so a curved edge is not clipped off."""
-    if bbox is None or not src_crs or not dst_crs or src_crs == dst_crs:
-        return bbox
-    transformer = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
-    minx, miny, maxx, maxy = transformer.transform_bounds(
-        bbox["minx"], bbox["miny"], bbox["maxx"], bbox["maxy"]
-    )
-    return {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy}
 
 
 def _intersects(a: dict[str, float], b: dict[str, float]) -> bool:

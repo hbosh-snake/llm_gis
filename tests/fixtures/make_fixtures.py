@@ -80,8 +80,30 @@ def make_aoi_3d_gpkg() -> None:
     gdf.to_file(FIXTURES_DIR / "aoi_3d.gpkg", driver="GPKG")
 
 
+def make_scene_cog() -> None:
+    """A small COG in UTM 32N, so windowing is exercised across a CRS boundary.
+
+    Deliberately not EPSG:4326: a bbox given in degrees against a metre-based raster is
+    the mistake bin/preview exists to catch, and the tests need a raster that can make it.
+    """
+    plain = FIXTURES_DIR / "_scene_plain.tif"
+    subprocess.run(
+        ["gdal_create", "-outsize", "512", "512", "-bands", "1", "-ot", "UInt16",
+         "-a_srs", "EPSG:32632", "-a_ullr", "399960", "5100000", "405080", "5094880",
+         "-burn", "1200", str(plain)],
+        check=True,
+    )
+    subprocess.run(
+        ["gdal_translate", "-q", "-of", "COG", "-co", "COMPRESS=DEFLATE",
+         str(plain), str(FIXTURES_DIR / "scene.tif")],
+        check=True,
+    )
+    plain.unlink()
+
+
 if __name__ == "__main__":
     make_aoi_gpkg()
     make_elevation_tif()
     make_dirty_gpkg()
     make_aoi_3d_gpkg()
+    make_scene_cog()

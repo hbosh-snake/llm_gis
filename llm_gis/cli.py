@@ -22,6 +22,7 @@ from llm_gis.list_ingestions import list_ingestions
 from llm_gis.planner import plan as plan_operation
 from llm_gis.qc import QcContext, qc_report, reference_for
 from llm_gis.query import query as duck_query
+from llm_gis.raster import window as raster_window
 from llm_gis.run_sql import run_sql_file
 from llm_gis.stage import stage_input
 
@@ -80,6 +81,28 @@ def inspect_cmd(
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
 ) -> None:
     _emit("inspect", inspect_dataset(source, ingest_id=ingest_id))
+
+
+@app.command("raster-window")
+@handle_errors
+def raster_window_cmd(
+    source: str = typer.Argument(..., help="Path or http/https/s3 URI to a raster"),
+    bbox: str = typer.Option(..., "--bbox", help="minx,miny,maxx,maxy"),
+    bbox_crs: str = typer.Option("EPSG:4326", "--bbox-crs", help="CRS the bbox is given in"),
+    band: int = typer.Option(1, "--band", help="Band to export, 1-based"),
+    t_srs: str | None = typer.Option(None, "--t-srs", help="Reproject the window to this CRS"),
+    stats: bool = typer.Option(True, "--stats/--no-stats", help="Exact statistics over the window"),
+    output: str | None = typer.Option(None, "--output", help="Write a COG here; omit to write nothing"),
+    ingest_id: str | None = typer.Option(None, help="Optional report id"),
+) -> None:
+    values = _parse_bbox(bbox)
+    _emit(
+        "raster-window",
+        raster_window(
+            source, bbox=tuple(values), bbox_crs=bbox_crs, band=band,
+            t_srs=t_srs, stats=stats, output=output, ingest_id=ingest_id,
+        ),
+    )
 
 
 @app.command("ingest-vector")
@@ -234,7 +257,10 @@ def plan_cmd(
 
 
 def _parse_bbox(bbox: str | None) -> list[float] | None:
-    """Four comma-separated numbers, always lon/lat WGS84 for STAC."""
+    """Four comma-separated numbers as minx,miny,maxx,maxy.
+
+    STAC search always means lon/lat WGS84; raster-window means whatever --bbox-crs says.
+    """
     if bbox is None:
         return None
     parts = [p.strip() for p in bbox.split(",")]
