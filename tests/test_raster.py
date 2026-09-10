@@ -78,3 +78,51 @@ def test_a_bbox_in_the_wrong_order_is_refused():
     with pytest.raises(GisError) as error:
         raster.window(SCENE, bbox=(9.0, 46.0, 8.9, 45.9))
     assert error.value.code == "MISSING_ARGUMENT"
+
+
+DEFAULT_STATS = ["count", "mean", "min", "max", "stdev"]
+
+
+def _zones_4326(tmp_path):
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    path = tmp_path / "zones.gpkg"
+    gpd.GeoDataFrame(
+        {"name": ["left", "right"]},
+        geometry=[box(7.72, 46.01, 7.735, 46.02), box(7.745, 46.01, 7.76, 46.02)],
+        crs="EPSG:4326",
+    ).to_file(path, driver="GPKG")
+    return str(path)
+
+
+def test_zonal_statistics_return_one_row_per_zone(tmp_path):
+    result = raster.window(SCENE, bbox=INSIDE, zones=_zones_4326(tmp_path))
+
+    assert len(result["zonal"]) == 2
+    assert {row["name"] for row in result["zonal"]} == {"left", "right"}
+    assert result["zonal"][0]["mean"] == 1200.0
+    assert result["zonal"][0]["count"] > 0
+
+
+def test_zones_in_a_different_crs_are_reprojected_not_assumed(tmp_path, monkeypatch):
+    """The zones arrive in 4326 against a 32632 raster; we reproject before GDAL sees them."""
+    seen = []
+    real = raster.run_command
+
+    def spy(args, **kwargs):
+        seen.append(args)
+        return real(args, **kwargs)
+
+    monkeypatch.setattr(raster, "run_command", spy)
+    raster.window(SCENE, bbox=INSIDE, zones=_zones_4326(tmp_path))
+
+    reprojections = [a for a in seen if a[0] == "ogr2ogr" and "-t_srs" in a]
+    assert reprojections, "zones must be reprojected explicitly, not left to GDAL's warning"
+
+
+def test_zone_statistics_are_selectable(tmp_path):
+    result = raster.window(SCENE, bbox=INSIDE, zones=_zones_4326(tmp_path), zone_stats=["count"])
+
+    assert "count" in result["zonal"][0]
+    assert "stdev" not in result["zonal"][0]

@@ -114,6 +114,62 @@ def band_stats(target: str) -> list[dict[str, Any]]:
     return bands
 
 
+DEFAULT_ZONE_STATS = ["count", "mean", "min", "max", "stdev"]
+
+
+def _vector_crs(path: str) -> str | None:
+    payload = json.loads(run_command(["ogrinfo", "-json", "-ro", gdal_uri(path)]))
+    layer = (payload.get("layers") or [{}])[0]
+    field = (layer.get("geometryFields") or [{}])[0]
+    from llm_gis.common import crs_text_from_ogr_coordinate_system
+
+    return normalize_crs(crs_text_from_ogr_coordinate_system(field.get("coordinateSystem") or {}))
+
+
+def _vector_fields(path: str) -> list[str]:
+    """Attribute field names, so the zone's own columns ride along in the output.
+
+    `gdal raster zonal-stats` carries no zone attribute through unless named with
+    --include-field, so the fields are read here rather than the caller guessing them.
+    """
+    payload = json.loads(run_command(["ogrinfo", "-json", "-ro", gdal_uri(path)]))
+    layer = (payload.get("layers") or [{}])[0]
+    return [f["name"] for f in layer.get("fields", [])]
+
+
+def zonal_stats(
+    target: str,
+    zones: str,
+    stats: list[str],
+    work_dir: Path,
+    raster_crs: str | None,
+) -> list[dict[str, Any]]:
+    """Statistics per zone, with the zone CRS reconciled here rather than by GDAL.
+
+    `gdal raster zonal-stats` warns on an SRS mismatch and computes anyway, which is a
+    silently wrong answer waiting to happen. We reproject first, so the warning cannot fire.
+    """
+    zone_crs = _vector_crs(zones)
+    prepared = zones
+    if raster_crs and zone_crs and zone_crs != raster_crs:
+        prepared = str(work_dir / "zones.gpkg")
+        run_command([
+            "ogr2ogr", "-q", "-t_srs", raster_crs, "-f", "GPKG", prepared, gdal_uri(zones),
+        ])
+
+    destination = work_dir / "zonal.geojson"
+    args = ["gdal", "raster", "zonal-stats", "-q", "--overwrite",
+            "-i", target, "--zones", prepared, "-f", "GeoJSON", "-o", str(destination)]
+    for name in stats:
+        args += ["--stat", name]
+    for name in _vector_fields(prepared):
+        args += ["--include-field", name]
+    run_command(args)
+
+    payload = json.loads(destination.read_text(encoding="utf-8"))
+    return [feature.get("properties", {}) for feature in payload.get("features", [])]
+
+
 def window(
     source: str,
     *,
@@ -165,6 +221,10 @@ def window(
     result["bbox_4326"] = reproject_bbox(native, window_crs, WGS84)
     if stats:
         result["bands"] = band_stats(str(vrt))
+    if zones:
+        result["zonal"] = zonal_stats(
+            str(vrt), zones, zone_stats or DEFAULT_ZONE_STATS, work_dir, window_crs
+        )
     if output:
         run_command([
             "gdal_translate", "-q", "-of", "COG", "-co", "COMPRESS=DEFLATE",

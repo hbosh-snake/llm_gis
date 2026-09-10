@@ -93,6 +93,8 @@ def raster_window_cmd(
     t_srs: str | None = typer.Option(None, "--t-srs", help="Reproject the window to this CRS"),
     stats: bool = typer.Option(True, "--stats/--no-stats", help="Exact statistics over the window"),
     output: str | None = typer.Option(None, "--output", help="Write a COG here; omit to write nothing"),
+    zones: str | None = typer.Option(None, "--zones", help="Vector dataset of zones for statistics by area"),
+    zone_stat: list[str] = typer.Option([], "--zone-stat", help="Statistic per zone; repeatable"),
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
 ) -> None:
     values = _parse_bbox(bbox)
@@ -100,7 +102,8 @@ def raster_window_cmd(
         "raster-window",
         raster_window(
             source, bbox=tuple(values), bbox_crs=bbox_crs, band=band,
-            t_srs=t_srs, stats=stats, output=output, ingest_id=ingest_id,
+            t_srs=t_srs, stats=stats, output=output,
+            zones=zones, zone_stats=list(zone_stat) or None, ingest_id=ingest_id,
         ),
     )
 
