@@ -22,6 +22,7 @@ from llm_gis.list_ingestions import list_ingestions
 from llm_gis.planner import plan as plan_operation
 from llm_gis.qc import QcContext, qc_report, reference_for
 from llm_gis.query import query as duck_query
+from llm_gis.preview import render as preview_render
 from llm_gis.raster import window as raster_window
 from llm_gis.run_sql import run_sql_file
 from llm_gis.stage import stage_input
@@ -106,6 +107,16 @@ def raster_window_cmd(
             zones=zones, zone_stats=list(zone_stat) or None, ingest_id=ingest_id,
         ),
     )
+
+
+@app.command("preview")
+@handle_errors
+def preview_cmd(
+    dataset: str = typer.Argument(..., help="Path or URI to a vector or raster"),
+    aoi: str | None = typer.Option(None, "--aoi", help="Vector dataset to draw as an outline"),
+    output: str | None = typer.Option(None, "--output", help="Path stem; .png and .preview.json are written"),
+) -> None:
+    _emit("preview", preview_render(dataset, aoi=aoi, output=output))
 
 
 @app.command("ingest-vector")

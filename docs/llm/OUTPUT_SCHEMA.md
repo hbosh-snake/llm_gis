@@ -98,6 +98,19 @@ output.
 | `output` | string \| null | Path of the COG written, only when `--output` was given; no pixels otherwise. |
 | `created_at` | string | UTC timestamp. |
 
+### `bin/preview`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `png` | string | Path to the rendered PNG. |
+| `sidecar` | string | Path to the `.preview.json` alongside it, holding the same payload. |
+| `kind` | string | `"raster"` or `"vector"`. |
+| `dataset` | object | `{uri, kind}` of the dataset rendered. |
+| `frame` | object | `{bbox_4326, size, resampling}` — the rendered extent, always EPSG:4326. |
+| `render` | object | `{channels: {r, g, b}, scale: {min, max}, graticule_degrees}`. |
+| `summary` | object | `{crs, bbox, bbox_4326, bands, aoi_intersects}` from the same collectors `bin/qc` uses. |
+| `created_at` | string | UTC timestamp. |
+
 ### `bin/ingest-vector`
 
 | Key | Type | Meaning |
