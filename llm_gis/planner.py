@@ -24,6 +24,7 @@ RASTER = "raster"
 
 DUCKDB = "duckdb"
 POSTGIS = "postgis"
+GDAL = "gdal"
 
 LOCAL = "local"
 REMOTE = "remote"
@@ -39,7 +40,7 @@ READERS = {
     PARQUET: [DUCKDB],
     VECTOR_FILE: [DUCKDB, POSTGIS],
     POSTGIS_TABLE: [POSTGIS],
-    RASTER: [],
+    RASTER: [GDAL, POSTGIS],
 }
 
 
@@ -99,6 +100,7 @@ OPERATIONS = (QUERY, ANALYSE, EXPORT)
 
 NO_CONVERSION_PATH = "NO_CONVERSION_PATH"
 REMOTE_UNINDEXED_READ = "REMOTE_UNINDEXED_READ"
+REMOTE_RANGE_READ = "REMOTE_RANGE_READ"
 
 BLOCKED_PARQUET = {
     "code": NO_CONVERSION_PATH,
@@ -109,6 +111,18 @@ BLOCKED_PARQUET = {
     "suggested_action": (
         "Query in place without --materialise, or add a GPKG output format to duck-query "
         "(DuckDB supports COPY ... FORMAT GDAL)."
+    ),
+}
+
+BLOCKED_RASTER_ANALYSE = {
+    "code": NO_CONVERSION_PATH,
+    "message": (
+        "SQL across sources runs in the workspace, and pixel statistics over a tiled "
+        "PostGIS raster table are not implemented here."
+    ),
+    "suggested_action": (
+        "Use bin/raster-window --zones <vector> for statistics by area, which needs no "
+        "database and reads only the window."
     ),
 }
 
@@ -125,8 +139,8 @@ class Route:
     blocked_by: dict | None = None
 
 
-def _blocked(reason: str) -> Route:
-    return Route(strategy=None, reason=reason, blocked_by=dict(BLOCKED_PARQUET))
+def _blocked(reason: str, payload: dict | None = None) -> Route:
+    return Route(strategy=None, reason=reason, blocked_by=dict(payload or BLOCKED_PARQUET))
 
 
 def _refuse_override(source: Source, engine: str) -> None:
@@ -147,6 +161,31 @@ def _query_route(source: Source, materialise: bool) -> Route:
         if materialise:
             return _blocked("a Parquet source cannot reach the workspace today")
         return Route(DUCKDB, "DuckDB reads Parquet in place; no database is needed")
+    if source.format == RASTER:
+        if materialise:
+            return Route(
+                POSTGIS,
+                "the pixels must survive this command, and the workspace is where results live",
+                fallback={"strategy": GDAL, "requires": None, "loses": "persistence"},
+            )
+        warnings = []
+        if source.locality == REMOTE:
+            warnings.append(
+                {
+                    "code": REMOTE_RANGE_READ,
+                    "message": (
+                        "A remote COG is read by range request: only the window's bytes "
+                        "cross the network, not the scene"
+                    ),
+                    "severity": "info",
+                }
+            )
+        return Route(
+            GDAL,
+            "a COG is read in place through range requests, and no persistence was requested",
+            fallback={"strategy": POSTGIS, "requires": "stage and ingest-raster first", "loses": None},
+            warnings=warnings,
+        )
     if materialise:
         return Route(
             POSTGIS,
@@ -173,12 +212,19 @@ def _query_route(source: Source, materialise: bool) -> Route:
 def _analyse_route(source: Source) -> Route:
     if source.format == PARQUET:
         return _blocked("SQL across sources runs in the workspace, which Parquet cannot reach today")
+    if source.format == RASTER:
+        return _blocked(
+            "pixel statistics belong to the raster reader, not to workspace SQL",
+            BLOCKED_RASTER_ANALYSE,
+        )
     return Route(POSTGIS, "SQL across sources needs the persistent workspace")
 
 
 def _export_route(source: Source) -> Route:
     if source.format == POSTGIS_TABLE:
         return Route(POSTGIS, "bin/export writes from the workspace")
+    if source.format == RASTER:
+        return Route(GDAL, "the source never enters the database")
     return Route(DUCKDB, "the source never enters the database")
 
 
@@ -200,7 +246,7 @@ def route(
         raise GisError(
             UNSUPPORTED_FORMAT,
             f"No engine here can open {source.uri}",
-            "Cloud raster arrives in Phase 7; ingest-raster still loads a local raster",
+            "Give a Parquet, GeoParquet, vector file, raster, or a schema.table name",
             {"format": source.format},
         )
 
@@ -294,6 +340,27 @@ def steps(
     """The serial bin/* list that carries out this route, arguments carried through."""
     if decided.strategy is None:
         return []
+
+    if decided.strategy == GDAL:
+        return [
+            Step(
+                "raster-window",
+                [source.uri, *_flags(bbox=bbox, output=output)],
+                "read the AOI out of the raster without downloading the scene",
+            )
+        ]
+
+    if source.format == RASTER:
+        ingest_id = _ingest_id(source.uri)
+        name = Path(source.uri.split("?")[0]).name
+        return [
+            Step("stage", [source.uri, "--ingest-id", ingest_id],
+                 "copy the source into the workspace and hash it"),
+            Step("ingest-raster",
+                 [f"/data/work/staging/{ingest_id}/{name}", "--table", ingest_id,
+                  "--ingest-id", ingest_id],
+                 "load the raster into PostGIS, where later steps can reach it"),
+        ]
 
     if decided.strategy == DUCKDB:
         if operation == EXPORT:

@@ -137,3 +137,11 @@ def test_an_unknown_alias_fails_before_any_network(monkeypatch):
     monkeypatch.setattr(stac_fetch, "fetch_json", never)
     with pytest.raises(GisError):
         catalog.search_items("nosuchcatalogue")
+
+
+def test_a_discovered_cog_now_reports_a_reader():
+    """catalog.readers_for delegates to the planner, so Phase 7 fixes this with no edit here."""
+    from llm_gis.catalog import readers_for
+
+    assert readers_for("https://e.com/scenes/B04.tif") == ["gdal", "postgis"]
+    assert readers_for(None) == []
