@@ -227,3 +227,102 @@ def route(
     if engine is not None:
         decided.overridden = "engine"
     return decided
+
+
+@dataclass
+class Step:
+    """One bin/* invocation, with the reason it is in the list."""
+
+    command: str
+    argv: list[str]
+    why: str
+
+
+def _ingest_id(uri: str) -> str:
+    """A deterministic id from the file name, so stage and ingest-vector agree.
+
+    stage invents a timestamped id when it is not given one, which would make every
+    later step in a printed plan unpasteable.
+    """
+    stem = Path(uri.split("?")[0]).stem.lower()
+    return re.sub(r"[^a-z0-9]+", "_", stem).strip("_")
+
+
+def _flags(**pairs: str | None) -> list[str]:
+    """Only the flags the caller actually supplied, in the order given."""
+    argv = []
+    for name, value in pairs.items():
+        if value is not None:
+            argv += [f"--{name.replace('_', '-')}", value]
+    return argv
+
+
+def _postgis_predicate(bbox: str | None, where: str | None) -> str:
+    """The filter as SQL. ST_SRID(geom) keeps it correct without reading the file."""
+    parts = []
+    if bbox:
+        parts.append(f"ST_Intersects(geom, ST_MakeEnvelope({bbox}, ST_SRID(geom)))")
+    if where:
+        parts.append(f"({where})")
+    return f" WHERE {' AND '.join(parts)}" if parts else ""
+
+
+def _materialise_steps(source: Source) -> list[Step]:
+    ingest_id = _ingest_id(source.uri)
+    name = Path(source.uri.split("?")[0]).name
+    return [
+        Step("stage", [source.uri, "--ingest-id", ingest_id],
+             "copy the source into the workspace and hash it"),
+        Step("ingest-vector",
+             [f"/data/work/staging/{ingest_id}/{name}", "--table", ingest_id,
+              "--ingest-id", ingest_id],
+             "load it into PostGIS, where later steps can reach it"),
+    ]
+
+
+def steps(
+    operation: str,
+    source: Source,
+    decided: Route,
+    *,
+    bbox: str | None = None,
+    where: str | None = None,
+    output: str | None = None,
+    output_format: str = "gpkg",
+    sql_path: str | None = None,
+) -> list[Step]:
+    """The serial bin/* list that carries out this route, arguments carried through."""
+    if decided.strategy is None:
+        return []
+
+    if decided.strategy == DUCKDB:
+        if operation == EXPORT:
+            return [Step("duck-query", [source.uri, *_flags(output=output)],
+                         "read the source and write the output file")]
+        return [Step("duck-query",
+                     [source.uri, *_flags(bbox=bbox, where=where, output=output)],
+                     "filter the source in place")]
+
+    if source.format == POSTGIS_TABLE:
+        sql = f"SELECT * FROM {source.uri}{_postgis_predicate(bbox, where)}"
+        return [Step("export",
+                     [output or "/data/outgoing/result.gpkg", "--format", output_format,
+                      "--sql", sql],
+                     "write the filtered table out")]
+
+    ingest_id = _ingest_id(source.uri)
+    plan = _materialise_steps(source)
+    if operation == ANALYSE:
+        plan.append(
+            Step("run-sql", [sql_path or "/data/work/sql/analysis.sql", "--ingest-id", ingest_id],
+                 "run the analysis SQL against the ingested tables")
+        )
+        sql = f"SELECT * FROM analysis_{ingest_id}.result"
+    else:
+        sql = f"SELECT * FROM raw_{ingest_id}.{ingest_id}{_postgis_predicate(bbox, where)}"
+    plan.append(
+        Step("export",
+             [output or "/data/outgoing/result.gpkg", "--format", output_format, "--sql", sql],
+             "write the result out and QC it")
+    )
+    return plan

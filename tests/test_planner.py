@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
-from llm_gis.planner import DUCKDB, NO_CONVERSION_PATH, POSTGIS, classify, route
+from llm_gis.planner import DUCKDB, NO_CONVERSION_PATH, POSTGIS, classify, route, steps
 
 
 def test_a_local_geoparquet_is_parquet_and_duckdb_only():
@@ -137,3 +137,65 @@ def test_forcing_postgis_onto_parquet_reports_the_gap_rather_than_refusing():
     result = _route("query", "https://example.com/b.parquet", engine=POSTGIS)
     assert result.strategy is None
     assert result.blocked_by["code"] == NO_CONVERSION_PATH
+
+
+def test_a_duckdb_query_is_one_step_carrying_the_real_arguments():
+    source = classify("/data/incoming/aoi.gpkg")
+    decided = route("query", source)
+    plan = steps("query", source, decided, bbox="8.5,45.0,9.5,45.6", where="kind = 'wood'",
+                 output="/data/outgoing/2026-09-10_aoi/matches.parquet")
+    assert [s.command for s in plan] == ["duck-query"]
+    assert plan[0].argv == [
+        "/data/incoming/aoi.gpkg",
+        "--bbox", "8.5,45.0,9.5,45.6",
+        "--where", "kind = 'wood'",
+        "--output", "/data/outgoing/2026-09-10_aoi/matches.parquet",
+    ]
+
+
+def test_omitted_arguments_leave_no_empty_flags():
+    source = classify("https://example.com/b.parquet")
+    plan = steps("query", source, route("query", source))
+    assert plan[0].argv == ["https://example.com/b.parquet"]
+
+
+def test_a_materialised_query_stages_ingests_and_exports():
+    source = classify("/data/incoming/aoi.gpkg")
+    decided = route("query", source, materialise=True)
+    plan = steps("query", source, decided, bbox="8.5,45.0,9.5,45.6",
+                 output="/data/outgoing/2026-09-10_aoi/result.gpkg")
+    assert [s.command for s in plan] == ["stage", "ingest-vector", "export"]
+    assert plan[0].argv == ["/data/incoming/aoi.gpkg", "--ingest-id", "aoi"]
+    assert plan[1].argv == [
+        "/data/work/staging/aoi/aoi.gpkg", "--table", "aoi", "--ingest-id", "aoi",
+    ]
+    assert plan[2].argv[0] == "/data/outgoing/2026-09-10_aoi/result.gpkg"
+    assert "ST_MakeEnvelope(8.5,45.0,9.5,45.6, ST_SRID(geom))" in plan[2].argv[-1]
+
+
+def test_the_ingest_id_is_derived_so_every_step_pastes_without_editing():
+    """stage picks a timestamped id unless told one; the plan tells it one."""
+    source = classify("/data/incoming/Milano AOI.gpkg")
+    plan = steps("query", source, route("query", source, materialise=True))
+    assert plan[0].argv[2] == "milano_aoi"
+
+
+def test_an_analyse_plan_runs_sql_between_ingest_and_export():
+    source = classify("/data/incoming/aoi.gpkg")
+    decided = route("analyse", source)
+    plan = steps("analyse", source, decided, sql_path="/data/work/sql/overlay.sql",
+                 output="/data/outgoing/2026-09-10_aoi/result.gpkg")
+    assert [s.command for s in plan] == ["stage", "ingest-vector", "run-sql", "export"]
+    assert plan[2].argv == ["/data/work/sql/overlay.sql", "--ingest-id", "aoi"]
+
+
+def test_a_blocked_route_produces_no_steps():
+    source = classify("/data/incoming/buildings.parquet")
+    decided = route("query", source, materialise=True)
+    assert steps("query", source, decided) == []
+
+
+def test_every_step_explains_itself():
+    source = classify("/data/incoming/aoi.gpkg")
+    plan = steps("query", source, route("query", source, materialise=True))
+    assert all(s.why for s in plan)
