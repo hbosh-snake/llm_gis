@@ -74,6 +74,7 @@ class Asset:
     media_type: str | None = None
     roles: list[str] = field(default_factory=list)
     readable_by: list[str] = field(default_factory=list)
+    readers: list[str] = field(default_factory=list)
     crs: str | None = None
     crs_status: str | None = None
     crs_reasons: list[str] = field(default_factory=list)

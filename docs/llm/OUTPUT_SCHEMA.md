@@ -207,6 +207,25 @@ A `result` of `not_evaluated` means the check was skipped for want of declared c
 | `output_path` | string or null | Where the subset was written, or null if nothing was written. |
 | `engine` | string | Always `duckdb`. Names the engine that ran the operation. |
 
+### `bin/plan`
+
+Explains a route. Executes nothing: no file is opened, no database is contacted, and a
+source that does not exist plans exactly like one that does.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `operation` | string | `"query"`, `"analyse"` or `"export"`, as given. |
+| `source` | object | `{uri, format, locality, readers}` — what the URI's text alone says. |
+| `strategy` | string or null | `"duckdb"`, `"postgis"`, or null when no route exists. |
+| `reason` | string | Why that engine, in one sentence. Always about persistence or capability, never performance. |
+| `fallback` | object or null | `{strategy, requires, loses}` — the other viable engine, what it costs, what it gives up. |
+| `overridden` | string or null | `"engine"` when `--engine` beat the rules, else null. |
+| `warnings` | array | `{code, message, severity}`, as `bin/qc` uses. |
+| `blocked_by` | object or null | `{code, message, suggested_action}` when `strategy` is null. |
+| `steps` | array | `{command, argv, why}` per step. `argv` is what follows `bin/`, ready to paste. |
+
+A blocked plan exits 0. "There is no route" is an answer to the question asked, not a failure.
+
 ### `bin/catalog-collections`
 
 | Key | Type | Meaning |
@@ -248,11 +267,18 @@ A `result` of `not_evaluated` means the check was skipped for want of declared c
 | `assets` | array | One entry per asset, see below. |
 | `asset_count` | integer | Length of `assets`. |
 
-Each asset: `{key, href, media_type, roles, advertised, readable_by}`.
+Each asset: `{key, href, media_type, roles, advertised, readable_by, readers}`.
 
 `advertised` holds the **publisher's claims**, not measurements: `size_bytes` from `file:size`, plus `num_rows`, `eo:cloud_cover` and `proj:epsg` where the collection supplies them. Never read these as QC metrics.
 
 `readable_by` is `["duckdb"]` for Parquet media types and `[]` otherwise. It says what can open the file, not what should: a `[]` asset such as a COG has no reader in this workspace yet.
+
+`readable_by` and `readers` differ on purpose. `readable_by` answers "can `duck-query`
+consume this href directly", which for a GeoPackage is no. `readers` answers "what could
+open this at all", which for the same GeoPackage is `["duckdb", "postgis"]` — DuckDB via
+`ST_Read`, PostGIS via `ingest-vector`. `readers` comes from `planner.readers`, the one
+place format-to-engine knowledge lives; `readable_by` is a narrower projection of it, kept
+as a compatibility surface.
 
 ## A note on cost
 

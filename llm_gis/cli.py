@@ -13,12 +13,13 @@ from llm_gis import catalog as catalog_ops
 from llm_gis.describe import describe_table
 from llm_gis.duck import describe as duck_describe
 from llm_gis.doctor import doctor_report
-from llm_gis.errors import UNEXPECTED, GisError
+from llm_gis.errors import INPUT_NOT_FOUND, UNEXPECTED, GisError
 from llm_gis.exporter import export_result
 from llm_gis.ingest_raster import ingest_raster
 from llm_gis.ingest_vector import ingest_vector
 from llm_gis.inspect import inspect_dataset
 from llm_gis.list_ingestions import list_ingestions
+from llm_gis.planner import plan as plan_operation
 from llm_gis.qc import QcContext, qc_report, reference_for
 from llm_gis.query import query as duck_query
 from llm_gis.run_sql import run_sql_file
@@ -193,6 +194,41 @@ def duck_query_cmd(
             columns=[c.strip() for c in columns.split(",")] if columns else None,
             limit=limit,
             output_path=output_path,
+        ),
+    )
+
+
+@app.command("plan")
+@handle_errors
+def plan_cmd(
+    operation: str = typer.Argument(..., help="query, analyse or export"),
+    uri: str = typer.Argument(..., help="Path, URL or schema.table of the source"),
+    bbox: str | None = typer.Option(None, "--bbox", help="minx,miny,maxx,maxy in the source CRS"),
+    where: str | None = typer.Option(None, "--where", help="SQL predicate on attributes"),
+    output: str | None = typer.Option(None, "--output", help="Where the emitted steps should write"),
+    output_format: str = typer.Option("gpkg", "--format", help="gpkg, geojson or parquet"),
+    sql_path: str | None = typer.Option(None, "--sql-file", help="SQL file for an analyse plan"),
+    engine: str | None = typer.Option(None, "--engine", help="Force duckdb or postgis"),
+    materialise: bool = typer.Option(False, "--materialise/--no-materialise",
+                                     help="The result must survive for later steps"),
+    asset: Path | None = typer.Option(None, "--asset", help="An Asset JSON file for extra warnings"),
+) -> None:
+    """Explain which engine should run an operation, why, and the steps. Runs nothing."""
+    asset_json = None
+    if asset is not None:
+        if not asset.exists():
+            raise GisError(
+                INPUT_NOT_FOUND,
+                f"Asset file does not exist: {asset}",
+                "Pass the JSON emitted by duck-describe, inspect or catalog-assets",
+            )
+        asset_json = json.loads(asset.read_text(encoding="utf-8"))
+    _emit(
+        "plan",
+        plan_operation(
+            operation, uri, materialise=materialise, engine=engine, bbox=bbox,
+            where=where, output=output, output_format=output_format,
+            sql_path=sql_path, asset=asset_json,
         ),
     )
 
