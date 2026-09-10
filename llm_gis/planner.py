@@ -12,10 +12,10 @@ scheme, so the planner answers at discovery time, when the least is known.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
+from llm_gis.errors import MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
 
 PARQUET = "parquet"
 VECTOR_FILE = "vector_file"
@@ -90,3 +90,140 @@ def classify(uri: str) -> Source:
     format_ = _format(uri)
     locality = REMOTE if uri.startswith(REMOTE_SCHEMES) else LOCAL
     return Source(uri=uri, format=format_, locality=locality, readers=readers(format_))
+
+
+QUERY = "query"
+ANALYSE = "analyse"
+EXPORT = "export"
+OPERATIONS = (QUERY, ANALYSE, EXPORT)
+
+NO_CONVERSION_PATH = "NO_CONVERSION_PATH"
+REMOTE_UNINDEXED_READ = "REMOTE_UNINDEXED_READ"
+
+BLOCKED_PARQUET = {
+    "code": NO_CONVERSION_PATH,
+    "message": (
+        "Nothing here writes a GDAL-readable file from a Parquet source: GDAL in this "
+        "image has no Parquet driver, and duck-query --output writes Parquet."
+    ),
+    "suggested_action": (
+        "Query in place without --materialise, or add a GPKG output format to duck-query "
+        "(DuckDB supports COPY ... FORMAT GDAL)."
+    ),
+}
+
+
+@dataclass
+class Route:
+    """One routing decision, with the argument for it."""
+
+    strategy: str | None
+    reason: str
+    fallback: dict | None = None
+    overridden: str | None = None
+    warnings: list[dict] = field(default_factory=list)
+    blocked_by: dict | None = None
+
+
+def _blocked(reason: str) -> Route:
+    return Route(strategy=None, reason=reason, blocked_by=dict(BLOCKED_PARQUET))
+
+
+def _refuse_override(source: Source, engine: str) -> None:
+    """An override the source cannot honour fails loudly rather than routing around it."""
+    if engine not in source.readers:
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"{engine} cannot open {source.uri}",
+            f"Drop --engine, or use one of: {', '.join(source.readers) or 'no engine here'}",
+            {"requested_engine": engine, "readers": source.readers},
+        )
+
+
+def _query_route(source: Source, materialise: bool) -> Route:
+    if source.format == POSTGIS_TABLE:
+        return Route(POSTGIS, "the table is already in the workspace")
+    if source.format == PARQUET:
+        if materialise:
+            return _blocked("a Parquet source cannot reach the workspace today")
+        return Route(DUCKDB, "DuckDB reads Parquet in place; no database is needed")
+    if materialise:
+        return Route(
+            POSTGIS,
+            "the result must survive this command, and the workspace is where results live",
+            fallback={"strategy": DUCKDB, "requires": None, "loses": "persistence"},
+        )
+    warnings = []
+    if source.locality == REMOTE:
+        warnings.append(
+            {
+                "code": REMOTE_UNINDEXED_READ,
+                "message": "A remote non-Parquet vector file is read whole and unindexed over HTTP",
+                "severity": "warning",
+            }
+        )
+    return Route(
+        DUCKDB,
+        "ST_Read opens a vector file without ingesting it, and no persistence was requested",
+        fallback={"strategy": POSTGIS, "requires": "stage and ingest-vector first", "loses": None},
+        warnings=warnings,
+    )
+
+
+def _analyse_route(source: Source) -> Route:
+    if source.format == PARQUET:
+        return _blocked("SQL across sources runs in the workspace, which Parquet cannot reach today")
+    return Route(POSTGIS, "SQL across sources needs the persistent workspace")
+
+
+def _export_route(source: Source) -> Route:
+    if source.format == POSTGIS_TABLE:
+        return Route(POSTGIS, "bin/export writes from the workspace")
+    return Route(DUCKDB, "the source never enters the database")
+
+
+def route(
+    operation: str,
+    source: Source,
+    *,
+    materialise: bool = False,
+    engine: str | None = None,
+) -> Route:
+    """Which engine runs this operation on this source, and the argument for it."""
+    if operation not in OPERATIONS:
+        raise GisError(
+            MISSING_ARGUMENT,
+            f"Unknown operation: {operation}",
+            f"Use one of: {', '.join(OPERATIONS)}",
+        )
+    if not source.readers:
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"No engine here can open {source.uri}",
+            "Cloud raster arrives in Phase 7; ingest-raster still loads a local raster",
+            {"format": source.format},
+        )
+
+    if engine is not None:
+        if engine == POSTGIS and source.format == PARQUET:
+            return _blocked("a Parquet source cannot reach the workspace today")
+        _refuse_override(source, engine)
+
+    if operation == QUERY:
+        decided = _query_route(source, materialise)
+    elif operation == ANALYSE:
+        decided = _analyse_route(source)
+    else:
+        decided = _export_route(source)
+
+    if engine is not None and decided.strategy != engine:
+        return Route(
+            engine,
+            f"requested with --engine {engine}, overriding: {decided.reason}",
+            fallback={"strategy": decided.strategy, "requires": None, "loses": None},
+            overridden="engine",
+            warnings=decided.warnings,
+        )
+    if engine is not None:
+        decided.overridden = "engine"
+    return decided
