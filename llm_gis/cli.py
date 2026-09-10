@@ -76,10 +76,10 @@ def stage_cmd(
 @app.command("inspect")
 @handle_errors
 def inspect_cmd(
-    input_path: Path = typer.Argument(..., help="Path to vector/raster input"),
+    source: str = typer.Argument(..., help="Path or http/https/s3 URI to a vector or raster"),
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
 ) -> None:
-    _emit("inspect", inspect_dataset(input_path, ingest_id=ingest_id))
+    _emit("inspect", inspect_dataset(source, ingest_id=ingest_id))
 
 
 @app.command("ingest-vector")

@@ -4,12 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from llm_gis.asset import LOCAL_FILE, Asset, Band, Layer, Provenance
+from llm_gis.asset import LOCAL_FILE, REMOTE_URI, Asset, Band, Layer, Provenance
 from llm_gis.common import (
     normalize_crs,
     crs_status,
     crs_text_from_ogr_coordinate_system,
     ensure_workspace_dirs,
+    gdal_uri,
+    is_remote,
+    remote_read_error,
     run_command,
     utc_now,
     work_root,
@@ -60,7 +63,7 @@ def _extract_raster_extent(payload: dict[str, Any]) -> dict[str, float] | None:
     return {"minx": min(xs), "maxx": max(xs), "miny": min(ys), "maxy": max(ys)}
 
 
-def _build_vector_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
+def _build_vector_asset(source: str, payload: dict[str, Any]) -> Asset:
     """What ogrinfo measured, as an Asset.
 
     `record_count` stays None: there is only a count per layer here, and summing
@@ -72,8 +75,10 @@ def _build_vector_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
     crs_text = normalize_crs(crs_text_from_ogr_coordinate_system(field.get("coordinateSystem") or {}))
     status, reasons = crs_status(crs_text, extent)
     return Asset(
-        uri=str(input_path),
-        provenance=Provenance(LOCAL_FILE, retrieved_at=utc_now()),
+        uri=source,
+        provenance=Provenance(
+            REMOTE_URI if is_remote(source) else LOCAL_FILE, retrieved_at=utc_now()
+        ),
         dataset_kind="vector",
         crs=crs_text,
         crs_status=status,
@@ -91,14 +96,16 @@ def _build_vector_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
     )
 
 
-def _build_raster_asset(input_path: Path, payload: dict[str, Any]) -> Asset:
+def _build_raster_asset(source: str, payload: dict[str, Any]) -> Asset:
     """What gdalinfo measured, as an Asset."""
     extent = _extract_raster_extent(payload)
     crs_text = normalize_crs(payload.get("coordinateSystem", {}).get("wkt"))
     status, reasons = crs_status(crs_text, extent)
     return Asset(
-        uri=str(input_path),
-        provenance=Provenance(LOCAL_FILE, retrieved_at=utc_now()),
+        uri=source,
+        provenance=Provenance(
+            REMOTE_URI if is_remote(source) else LOCAL_FILE, retrieved_at=utc_now()
+        ),
         dataset_kind="raster",
         crs=crs_text,
         crs_status=status,
@@ -143,39 +150,48 @@ def _to_report(asset: Asset) -> dict[str, Any]:
     return report
 
 
-def inspect_dataset(input_path: Path, ingest_id: str | None = None) -> dict[str, Any]:
+def inspect_dataset(source: str | Path, ingest_id: str | None = None) -> dict[str, Any]:
+    """Measure a dataset. `source` is a local path or a remote http/https/s3 URI."""
     ensure_workspace_dirs()
-    if not input_path.exists():
+    source = str(source)
+    if not is_remote(source) and not Path(source).exists():
         raise GisError(
             INPUT_NOT_FOUND,
-            f"Input path does not exist: {input_path}",
+            f"Input path does not exist: {source}",
             "Check the path and try again",
         )
+    target = gdal_uri(source)
 
     vector_out: dict[str, Any] | None = None
     raster_out: dict[str, Any] | None = None
 
     try:
-        vector_out = json.loads(run_command(["ogrinfo", "-json", "-ro", str(input_path)]))
+        vector_out = json.loads(run_command(["ogrinfo", "-json", "-ro", target]))
     except Exception:
         vector_out = None
 
+    remote_failure: GisError | None = None
     try:
-        raster_out = json.loads(run_command(["gdalinfo", "-json", str(input_path)]))
+        raster_out = json.loads(run_command(["gdalinfo", "-json", target]))
+    except GisError as error:
+        remote_failure = error
+        raster_out = None
     except Exception:
         raster_out = None
 
     if not vector_out and not raster_out:
+        if is_remote(source) and remote_failure is not None:
+            raise remote_read_error(source, remote_failure)
         raise GisError(
             UNSUPPORTED_FORMAT,
-            f"Neither ogrinfo nor gdalinfo could read {input_path}",
+            f"Neither ogrinfo nor gdalinfo could read {source}",
             "Confirm the file is a GDAL-readable vector or raster; for a sidecar format ensure companion files are present",
         )
 
     if vector_out:
-        asset = _build_vector_asset(input_path, vector_out)
+        asset = _build_vector_asset(source, vector_out)
     else:
-        asset = _build_raster_asset(input_path, raster_out or {})
+        asset = _build_raster_asset(source, raster_out or {})
     report = _to_report(asset)
 
     if ingest_id:
