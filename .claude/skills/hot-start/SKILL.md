@@ -50,7 +50,9 @@ keys, so the descriptor is internal and no output changed when it landed.
 | `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
 | `bin/catalog-item <item-url>` | One STAC item |
 | `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
-| `bin/plan <query\|analyse\|export> <source> [--bbox] [--where] [--materialise] [--engine]` | Explain which engine (duckdb/postgis) should run a job, why, and the exact steps. Executes nothing |
+| `bin/plan <query\|analyse\|export> <source> [--bbox] [--where] [--materialise] [--engine]` | Explain which engine (duckdb/postgis/gdal) should run a job, why, and the exact steps. Executes nothing |
+| `bin/raster-window <path-or-url> --bbox <minx,miny,maxx,maxy> [--bbox-crs] [--t-srs] [--zones <vector>] [--zone-stat] [--output <path>]` | Read an AOI out of a raster (local file or remote COG) without downloading the scene |
+| `bin/preview <path-or-url> [--aoi <vector>] [--output <path-stem>]` | Render a dataset to a deterministic PNG with an AOI outline and graticule, plus a `.preview.json` sidecar |
 
 ## Standard workflow
 
@@ -97,8 +99,41 @@ to `duck-query`. Nothing is staged or ingested.
 **`catalog-search --bbox` is lon/lat WGS84. `duck-query --bbox` is in the data's own CRS.**
 Same flag name, different meaning, and they are designed to be used back to back.
 
-An asset with `readable_by: []` (a COG, say) has no reader in this workspace until Phase 7.
-Values under an asset's `advertised` key are the publisher's claims, not measurements.
+A COG asset now reports `readers: ["gdal", "postgis"]` (not `readable_by`, which stays
+Parquet-only): hand its href straight to `bin/raster-window` for an AOI read, or to
+`bin/inspect` for a header-only look. Values under an asset's `advertised` key are the
+publisher's claims, not measurements.
+
+## Cloud raster (GDAL, no rasterio)
+
+`llm_gis/raster.py` shells out to the GDAL 3.13.3 command line already in the image —
+`gdalinfo`, `gdal_translate`, `gdalwarp`, `gdal raster zonal-stats` — through
+`common.gdal_uri`, which prefixes `/vsicurl/` for `http(s)://` and `/vsis3/` for `s3://`
+and passes a local path through unchanged. `rasterio` was deliberately not added (decision
+D8): the image's own GDAL already does everything this module needs, and a second PyPI
+GDAL/PROJ stack would buy nothing.
+
+A window is a VRT describing the AOI (`-projwin`/`-te`), not a copy — under 2 KB, and no
+pixel is read from the source until something (`gdalinfo -stats`, `gdal raster
+zonal-stats`, `gdal_translate` with `--output`) actually reads that VRT. **`--output` is
+the only thing in this phase that writes pixels to disk.** Without it, `bin/raster-window`
+runs statistics and zonal statistics straight off `/vsicurl` and writes nothing.
+
+`gdal raster zonal-stats` is GDAL's provisional unified CLI (decision D9) and the *only*
+GDAL call in this workspace that uses it — everything else uses a classic utility, pinned
+against `ghcr.io/osgeo/gdal:ubuntu-small-3.13.3` so nothing moves underneath. Before
+handing zones to it, `raster.zonal_stats` compares the zone vector's CRS to the raster's
+own and reprojects with `ogr2ogr -t_srs` when they differ, rather than relying on GDAL's
+own SRS-mismatch warning (which computes anyway rather than refusing).
+
+`bin/preview` (`llm_gis/preview.py`) frames a dataset and its optional AOI as the union of
+their bboxes in EPSG:4326, padded 5% and squared to 512x512, then burns three Byte
+channels — red the data, green the AOI outline, blue a whole-degree graticule — built with
+`gdal_create`/`gdal_rasterize`/`gdalwarp` and stacked with `gdalbuildvrt -separate` before
+a single `gdal_translate -of PNG`. It calls the same `qc_collect` collectors `bin/qc`
+judges, so a preview's `summary` block and a `qc` report agree by construction. The render
+is deterministic: same input, byte-identical PNG, because the scale bounds come from
+measured statistics rather than a per-run guess.
 
 ## Hard constraints (non-negotiable)
 

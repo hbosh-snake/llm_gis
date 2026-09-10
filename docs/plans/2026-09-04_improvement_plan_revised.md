@@ -81,6 +81,24 @@ operator model in `CLAUDE.md` directly — the agent checking its own output —
 small and independent. The OGC/ArcGIS/WFS adapter family is large and should wait for
 concrete demand from a real job.
 
+**D8 — no `rasterio`.** The plan specifies `uv add rasterio`. The image's own GDAL 3.13.3
+performs every Phase 7 capability, measured on 2026-09-10 and tabulated in the Phase 7
+design: remote inspect, overview-based approximate statistics without a full download,
+windowed read and COG export writing 478 KB from a 150 MB scene, exact statistics on the
+window, zonal statistics straight against the remote COG with values identical to a local
+clip, and PNG rendering. A PyPI `rasterio` wheel would put a second GDAL and PROJ stack
+beside the image's, to be kept in step, and would buy none of it. Exposing the image's
+`osgeo` bindings into the venv through system site packages avoids the double stack but
+breaks the venv's isolation and buys none of it either.
+
+**D9 — accepted risk on the provisional `gdal` CLI.** `gdal raster zonal-stats` belongs to
+GDAL's unified command line interface, which prints that it is "provisionally provided" and
+that the project "reserves the right to modify, rename, reorganize, and change the behavior
+of the utility until it is officially frozen in a future feature release". We pin
+`ghcr.io/osgeo/gdal:ubuntu-small-3.13.3` exactly, so nothing moves underneath us. The
+exposure is one command, and a future image bump must re-verify it. Everything else in
+Phase 7 uses the frozen classic utilities.
+
 ---
 
 ## 3. Constraints that apply to every phase
@@ -278,9 +296,9 @@ Status as of this document. To be updated as phases land.
 | O3 DuckDB + spatial | PLANNED Phase 2 | Promoted to first capability phase (D2). |
 | O4 Execution planner | PLANNED Phase 6 | Needs two live engines first (D5). |
 | O5 Portolan | DEFERRED | Revisit after Phase 4 proves generic STAC against a Portolan catalogue. No Portolan-specific code until a generic path demonstrably fails. |
-| O6 COG-first raster | PLANNED Phase 7 | PostGIS raster retained, no longer the default sink. |
+| O6 COG-first raster | DONE Phase 7 | GDAL reads a remote COG through `/vsicurl`; PostGIS raster retained, no longer the default sink (D8). |
 | O7 OGC / ArcGIS / WFS adapters | DEFERRED | Large surface, no current job requires it (D7). Revisit on demand, one protocol at a time. |
-| O8 Preview | PLANNED Phase 7 | Library rendering only, no server. |
+| O8 Preview | DONE Phase 7 | `bin/preview` renders a deterministic PNG with AOI outline and graticule; library rendering only, no server. |
 | O9 QC | PLANNED Phase 3 | Promoted; extends existing `crs_status`. |
 | O10 Operation plans | PLANNED Phase 6 | Serial plan, no DAG engine. |
 | O11 Provenance | PARTIAL, Phase 5 | `analysis.json` manifest follows the asset model; ingest ids and hashes already exist. |
@@ -293,7 +311,7 @@ Status as of this document. To be updated as phases land.
 | O20 Demonstration workflows | PLANNED | Example 1 is Phase 0's live test; Example 2 is Phase 4's done-when; Example 3 is Phase 7's. Examples 4 (multi-dataset) and 5 (Portolan) follow once their inputs exist. |
 | O21 Testing | PLANNED Phase 0 onward | Fixture-based by default; `tests/live/` excluded from the default run so an offline catalogue never fails the suite. |
 | O22 Documentation | PLANNED, per phase | Each phase updates `README.md`, `AGENTS.md` and `.claude/skills/hot-start/SKILL.md` with the commands it adds and the engine-choice guidance (GDAL / DuckDB / PostGIS / Rasterio) as defaults rather than rules. Documentation ships with the phase, not after it. |
-| O25 Decision log | ACTIVE | This document's "Departures" section (D1-D7) is the decision log; new decisions append there with their rationale. |
+| O25 Decision log | ACTIVE | This document's "Departures" section (D1-D9) is the decision log; new decisions append there with their rationale. |
 
 ---
 
