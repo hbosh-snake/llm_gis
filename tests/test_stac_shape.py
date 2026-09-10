@@ -74,6 +74,41 @@ def test_readable_by_maps_only_parquet_media_types():
     assert readable_by(None) == []
 
 
+def test_readable_by_still_returns_exactly_what_it_always_did():
+    """A compatibility surface. Phase 6 subsumed the table underneath it, not the values."""
+    assert readable_by("application/vnd.apache.parquet") == ["duckdb"]
+    assert readable_by("application/x-parquet") == ["duckdb"]
+    assert readable_by("image/tiff; application=geotiff; profile=cloud-optimized") == []
+    assert readable_by(None) == []
+
+
+def test_an_asset_also_reports_what_could_open_it_at_all():
+    """readable_by answers 'can duck-query take this href'. readers answers 'what can open it'."""
+    flat = flatten_asset(
+        "data",
+        {"href": "https://example.com/aoi.gpkg", "type": "application/geopackage+sqlite3"},
+        {},
+    )
+    assert flat["readable_by"] == []
+    assert flat["readers"] == ["duckdb", "postgis"]
+
+
+def test_a_parquet_asset_agrees_with_itself():
+    flat = flatten_asset(
+        "data",
+        {"href": "https://example.com/b.parquet", "type": "application/vnd.apache.parquet"},
+        {},
+    )
+    assert flat["readable_by"] == ["duckdb"]
+    assert flat["readers"] == ["duckdb"]
+
+
+def test_an_href_the_planner_does_not_recognise_reports_no_readers():
+    """catalog-assets lists whatever a publisher advertises; it must not raise on a stray href."""
+    flat = flatten_asset("thumb", {"href": "https://example.com/x.png", "type": "image/png"}, {})
+    assert flat["readers"] == []
+
+
 def test_a_collection_flattens_with_its_sub_extents_kept():
     flat = flatten_collection(_load("overture_collection"))
     assert flat["id"] == "building"

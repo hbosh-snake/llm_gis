@@ -9,6 +9,7 @@ from __future__ import annotations
 from llm_gis import stac_fetch
 from llm_gis.asset import STAC_ASSET, Asset, Provenance
 from llm_gis.errors import CATALOG_MALFORMED, INPUT_NOT_FOUND, GisError
+from llm_gis.planner import DUCKDB, classify
 
 CATALOGS = {
     "overture": "https://stac.overturemaps.org/catalog.json",
@@ -40,11 +41,24 @@ ADVERTISED_PROPERTIES = ("num_rows", "eo:cloud_cover", "proj:epsg")
 
 
 def readable_by(media_type: str | None) -> list[str]:
-    """Which engine can open this media type. A format fact, not a routing decision.
+    """Whether duck-query can consume this href directly. A compatibility surface.
 
-    Phase 6's planner subsumes this. It must not grow a second opinion here.
+    Phase 6 subsumed the routing table this once held: `planner.readers` is now the
+    single authoritative one, and this is a projection of it. The returned values are
+    unchanged, and deliberately narrower than `readers`: a GeoPackage over HTTP can be
+    opened by DuckDB, but not by the Parquet query path this field describes.
     """
-    return ["duckdb"] if media_type in PARQUET_MEDIA_TYPES else []
+    return [DUCKDB] if media_type in PARQUET_MEDIA_TYPES else []
+
+
+def readers_for(href: str | None) -> list[str]:
+    """What could open this href at all, per the planner. Never raises on a stray asset."""
+    if not href:
+        return []
+    try:
+        return classify(href).readers
+    except GisError:
+        return []
 
 
 def _self_href(document: dict) -> str | None:
@@ -93,6 +107,7 @@ def build_asset(
         media_type=asset.get("type"),
         roles=asset.get("roles") or [],
         readable_by=readable_by(asset.get("type")),
+        readers=readers_for(asset.get("href")),
         advertised=advertised,
     )
 
@@ -106,6 +121,7 @@ def _to_asset_json(asset: Asset) -> dict:
         "roles": asset.roles,
         "advertised": asset.advertised,
         "readable_by": asset.readable_by,
+        "readers": asset.readers,
     }
 
 

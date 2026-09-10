@@ -102,7 +102,7 @@ def test_catalog_round_trips_to_the_json_its_callers_already_know():
         "aws", item["assets"]["aws"], item["properties"]
     )
     assert set(catalog._to_asset_json(asset)) == {
-        "key", "href", "media_type", "roles", "advertised", "readable_by"
+        "key", "href", "media_type", "roles", "advertised", "readable_by", "readers"
     }
 
 
