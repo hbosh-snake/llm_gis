@@ -174,6 +174,7 @@ def qc_cmd(
     compare_to: str | None = typer.Option(None, "--compare-to", help="File or table whose extent this should overlap"),
     id_column: str | None = typer.Option(None, "--id-column", help="Column to check for duplicate identifiers"),
     exact_stats: bool = typer.Option(False, "--exact-stats", help="Full raster pixel scan instead of an approximation"),
+    bbox: str | None = typer.Option(None, "--bbox", help="Restrict raster QC to this AOI, minx,miny,maxx,maxy in EPSG:4326"),
 ) -> None:
     """Deterministic metrics and warnings for a dataset or a table."""
     context = QcContext(
@@ -182,7 +183,13 @@ def qc_cmd(
         id_column=id_column,
         reference=reference_for(compare_to) if compare_to else None,
     )
-    _emit("qc", qc_report(ref, context, exact_stats=exact_stats))
+    values = _parse_bbox(bbox)
+    bbox_dict = (
+        {"minx": values[0], "miny": values[1], "maxx": values[2], "maxy": values[3]}
+        if values
+        else None
+    )
+    _emit("qc", qc_report(ref, context, exact_stats=exact_stats, bbox=bbox_dict))
 
 
 @app.command("duck-describe")

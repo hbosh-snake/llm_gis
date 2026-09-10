@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from llm_gis import qc_collect
-from llm_gis.common import crs_status, parse_crs, reproject_bbox, utc_now
+from llm_gis.common import crs_status, is_remote, parse_crs, reproject_bbox, utc_now
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, INPUT_NOT_FOUND, GisError
 
 SEVERITY = "warning"
@@ -123,6 +123,8 @@ def build_report(source: dict, metrics: dict, context: QcContext) -> dict[str, A
 
 def resolve_source(ref: str) -> dict[str, str]:
     """A path if one exists on disk, otherwise schema.table."""
+    if is_remote(ref):
+        return {"kind": "file", "ref": ref}
     path = Path(ref)
     if path.exists():
         return {"kind": "file", "ref": ref}
@@ -136,11 +138,13 @@ def resolve_source(ref: str) -> dict[str, str]:
     )
 
 
-def qc_report(ref: str, context: QcContext, *, exact_stats: bool = False) -> dict[str, Any]:
+def qc_report(
+    ref: str, context: QcContext, *, exact_stats: bool = False, bbox: dict | None = None
+) -> dict[str, Any]:
     """Collect metrics for one source and judge them against the declared context."""
     resolved = resolve_source(ref)
     if resolved["kind"] == "file":
-        source, metrics = qc_collect.file_metrics(Path(ref), context.id_column, exact_stats)
+        source, metrics = qc_collect.file_metrics(ref, context.id_column, exact_stats, bbox)
     else:
         source, metrics = qc_collect.table_metrics(
             resolved["schema"], resolved["table"], context.id_column

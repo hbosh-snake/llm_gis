@@ -18,6 +18,8 @@ from psycopg import sql
 from llm_gis.common import (
     crs_text_from_ogr_coordinate_system,
     db_connect,
+    gdal_uri,
+    is_remote,
     normalize_crs,
     run_command,
 )
@@ -186,11 +188,26 @@ def file_vector_metrics(path: Path, id_column: str | None) -> dict[str, Any]:
     }
 
 
-def file_raster_metrics(path: Path, exact_stats: bool) -> dict[str, Any]:
-    """gdalinfo with PAM disabled: a .aux.xml write beside a read-only source would fail."""
+def file_raster_metrics(
+    source: str | Path,
+    exact_stats: bool,
+    bbox: dict[str, float] | None = None,
+    bbox_crs: str = "EPSG:4326",
+) -> dict[str, Any]:
+    """gdalinfo with PAM disabled: a .aux.xml write beside a read-only source would fail.
+
+    With a bbox, statistics are measured over a VRT window rather than the whole raster,
+    which is what makes a remote scene a QC source at all.
+    """
+    from llm_gis.common import work_root
+    from llm_gis.raster import window_vrt
+
+    target = gdal_uri(str(source))
+    if bbox:
+        target = str(window_vrt(str(source), bbox, bbox_crs, None, work_root() / "raster" / "qc"))
     flag = "-stats" if exact_stats else "-approx_stats"
     env = {**os.environ, "GDAL_PAM_ENABLED": "NO"}
-    payload = json.loads(run_command(["gdalinfo", "-json", flag, str(path)], env=env))
+    payload = json.loads(run_command(["gdalinfo", "-json", flag, target], env=env))
     size = payload.get("size") or [None, None]
     transform = payload.get("geoTransform") or [0, None, 0, 0, 0, None]
     corners = payload.get("cornerCoordinates", {})
@@ -225,15 +242,22 @@ def file_raster_metrics(path: Path, exact_stats: bool) -> dict[str, Any]:
     }
 
 
-def file_metrics(path: Path, id_column: str | None, exact_stats: bool) -> tuple[dict, dict]:
-    """Dispatch on extension, then collect. Returns (source, metrics)."""
-    kind = "raster" if path.suffix.lower() in RASTER_SUFFIXES else "vector"
+def file_metrics(
+    path: str | Path, id_column: str | None, exact_stats: bool, bbox: dict | None = None
+) -> tuple[dict, dict]:
+    """Dispatch on extension, then collect. Returns (source, metrics).
+
+    A remote URI is treated as a raster: Phase 7 gives no remote vector reader, and
+    guessing from a suffix that may be absent would be a worse answer than a clear one.
+    """
+    text = str(path)
+    kind = "raster" if is_remote(text) or Path(text).suffix.lower() in RASTER_SUFFIXES else "vector"
     metrics = (
-        file_raster_metrics(path, exact_stats)
+        file_raster_metrics(text, exact_stats, bbox)
         if kind == "raster"
-        else file_vector_metrics(path, id_column)
+        else file_vector_metrics(Path(text), id_column)
     )
-    return {"kind": "file", "ref": str(path), "dataset_kind": kind}, metrics
+    return {"kind": "file", "ref": text, "dataset_kind": kind}, metrics
 
 
 def _table_columns(cursor, schema: str, table: str) -> tuple[list[str], bool]:
