@@ -1,317 +1,120 @@
 # llm-gis
 
-`llm-gis` is a small, headless GIS workspace you run with Docker.
-
-You put geospatial files into `data/incoming/`, run a few commands, and get analysis results back in `data/outgoing/`.
+`llm-gis` is a headless GIS workspace you run with Docker. Drop geospatial
+files into `data/incoming/`, run a few commands, and get analysis results
+back in `data/outgoing/`.
 
 This project is for:
 - loading vector and raster data into PostGIS
 - checking CRS information before import
-- running repeatable spatial SQL
-- exporting results as GeoPackage or GeoJSON
+- running repeatable spatial SQL, including ad hoc querying of cloud-native
+  formats without loading them first
+- discovering datasets in STAC catalogues
+- exporting results as GeoPackage, GeoJSON, or GeoParquet
 
-This project is not:
-- a web map
-- a desktop GIS
-- a Jupyter notebook environment
+This project is not a web map, a desktop GIS, or a notebook environment.
+
+## Architecture
+
+| Layer | Tool | Role |
+|-------|------|------|
+| Persistent storage | PostGIS | System of record for ingested vector/raster tables and ingest metadata (`meta.ingestions`) |
+| Ephemeral querying | DuckDB | Filters and reads cloud-native formats (Parquet/GeoParquet, remote COGs) in place, no load step required |
+| Raster I/O | GDAL (`ogrinfo`, `gdalinfo`, `gdalwarp`, `/vsicurl`) | Inspection, reprojection, and windowed reads of local or remote rasters |
+| Discovery | STAC (`pystac-client`) | Finds datasets and assets in STAC catalogues by area/time before anything is downloaded |
+
+An execution planner (`bin/plan`) sits on top and decides, per operation,
+whether DuckDB or PostGIS should run it — see
+[`docs/superpowers/specs/2026-09-10-execution-planner-design.md`](docs/superpowers/specs/2026-09-10-execution-planner-design.md).
 
 ## What You Need
 
-Before you start, make sure you have:
 - Docker
 - Docker Compose v2
 - Bash (Linux, macOS, or WSL on Windows)
 
-You do not need to install PostgreSQL, PostGIS, GDAL, or Python on your machine. Docker provides the working environment.
-
-Run all commands in this README from the repo root directory unless noted otherwise.
-
-The `bin/*` commands run the container as your own user, so files written to
-`data/outgoing/` and `data/work/` belong to you rather than to root.
-
-## Project Folders
-
-These are the only folders most people need to care about:
-
-| Folder | Purpose |
-|--------|---------|
-| `data/incoming/` | Put raw input files here |
-| `data/work/` | Temporary files, logs, and SQL working files |
-| `data/outgoing/` | Exported results appear here, in dated subfolders |
-| `data/archive/` | Processed source files are moved here after a workflow completes |
-
-Examples of supported inputs:
-- Shapefile
-- GeoPackage
-- GeoJSON
-- GeoTIFF
-
-If your data is a Shapefile, keep all of its sidecar files together, not just the `.shp` file. In practice, that usually means copying the full set of `.shp`, `.shx`, `.dbf`, and `.prj` files, or using a ZIP that contains them together.
+Docker provides PostgreSQL, PostGIS, GDAL, and Python — nothing else needs to
+be installed on your machine. Run all commands from the repo root.
 
 ## 5-Minute Setup
-
-Clone the repo, start Docker, and verify the tools:
 
 ```bash
 git clone <repo-url>
 cd llm-gis
 docker compose up -d --build
-bin/doctor
+bin/inspect data/incoming/<some-file>
 ```
 
-What success looks like:
-- Docker starts two services: `db` and `agent`
-- `bin/doctor` returns JSON instead of an error
+`docker compose up` starts two services, `db` and `agent`. `bin/inspect`
+should return JSON describing the file's format and CRS — that confirms the
+stack is working. If it fails, run `bin/doctor` and fix Docker before trying
+anything else.
 
-If `bin/doctor` fails, stop there and fix Docker before trying anything else.
+`bin/*` commands run the container as your own user, so files written to
+`data/outgoing/` and `data/work/` belong to you, not root.
 
-You can also confirm both services are up with:
+## Project Folders
 
-```bash
-docker compose ps
-```
+| Folder | Purpose |
+|--------|---------|
+| `data/incoming/` | Put raw input files here (read-only during processing) |
+| `data/work/` | Temporary files, logs, and SQL working files |
+| `data/outgoing/` | Exported results, in dated subfolders |
+| `data/archive/` | Processed source files, moved here after a workflow completes |
 
-## How The Workflow Works
-
-The normal workflow is:
+## The Normal Workflow
 
 1. Put a dataset in `data/incoming/`
-2. Inspect it to check CRS and basic metadata
-3. Ingest it into PostGIS
-4. Run a SQL analysis
-5. Export the result to `data/outgoing/`
+2. `bin/inspect` it to check CRS and metadata
+3. `bin/ingest-vector` or `bin/ingest-raster` it into PostGIS
+4. `bin/run-sql` a spatial analysis
+5. `bin/export` the result to `data/outgoing/`
 
-You do not prepare the database manually. The project creates the PostGIS extensions and metadata tables automatically on first startup.
-
-## Quickstart: Vector Data
-
-This is the simplest end-to-end example.
-
-### 1. Copy a dataset into `data/incoming/`
-
-Example:
-
-```bash
-cp /path/to/roads.gpkg data/incoming/
-```
-
-### 2. Inspect the dataset
-
-```bash
-bin/inspect data/incoming/roads.gpkg
-```
-
-Look for these fields in the JSON output:
-- `dataset_kind`
-- `detected_crs`
-- `crs_status`
-- `layers`
-
-How to read `crs_status`:
-- `ok`: safe to continue
-- `missing`: the file has no usable CRS information
-- `suspicious`: the CRS and the coordinate values do not match well enough to trust automatically
-
-If the status is `missing` or `suspicious`, you must provide the correct CRS during ingest with `--src-crs EPSG:XXXX`.
-
-### 3. Ingest the vector data into PostGIS
-
-```bash
-bin/ingest-vector data/incoming/roads.gpkg --table roads --dst-crs EPSG:3035
-```
-
-What this does:
-- loads the file into PostGIS
-- creates a schema named `raw_<ingest_id>`
-- stores the table as `roads`
-- reprojects to `EPSG:3035` on load
-
-Why use `--dst-crs` here:
-- distance, buffer, and area calculations should usually use a projected CRS, not latitude/longitude
-
-Important:
-- save the `ingest_id` from the JSON output
-- you will use it in the next commands
-- when you see `<ingest_id>` later in this README, replace it with that real value
-
-If you already know the source CRS is wrong or missing, use:
-
-```bash
-bin/ingest-vector data/incoming/roads.gpkg --table roads --src-crs EPSG:4326 --dst-crs EPSG:3035
-```
-
-### 4. Check what was loaded
-
-```bash
-bin/describe-table raw_<ingest_id>.roads
-```
-
-Use this to confirm:
-- the table exists
-- the row count looks reasonable
-- the column names are what you expect
-
-## Run An Analysis
-
-Create a SQL file in `data/work/`.
-
-Example:
-
-```sql
-CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;
-
-CREATE TABLE analysis_<ingest_id>.roads_buffer AS
-SELECT
-  fid,
-  name,
-  ST_Buffer(geom, 100) AS geom
-FROM roads;
-```
-
-Save that as:
-
-```text
-data/work/analysis.sql
-```
-
-Replace `<ingest_id>` in the SQL with the actual value returned by `bin/ingest-vector`.
-
-Then run it:
-
-```bash
-bin/run-sql data/work/analysis.sql --ingest-id <ingest_id>
-```
-
-What this does:
-- connects to PostGIS
-- sets the schema search path so `roads` resolves to the ingested table
-- runs the SQL file
-- stops on SQL errors
-
-When you see angle brackets in examples, they are placeholders:
-- replace `<ingest_id>` with the real ingest ID from the ingest step
-- replace `EPSG:XXXX` with a real CRS code
-
-Then verify the output table:
-
-```bash
-bin/describe-table analysis_<ingest_id>.roads_buffer
-```
-
-## Export The Result
-
-Export to GeoPackage:
-
-```bash
-bin/export data/outgoing/roads_buffer.gpkg --format gpkg --table analysis_<ingest_id>.roads_buffer
-```
-
-Export to GeoJSON:
-
-```bash
-bin/export data/outgoing/roads_buffer.geojson --format geojson --table analysis_<ingest_id>.roads_buffer
-```
-
-Your output files will appear in `data/outgoing/`.
-
-Export attaches a `qc` block by default — deterministic metrics and warnings about the file
-it just wrote (pass `--no-qc` to skip it, `--compare-to <ref>` to check the result's extent
-against a specific source). See `bin/qc` below to run the same checks on demand.
-
-## Quickstart: Raster Data
-
-Raster workflow is similar:
-
-1. Put the raster in `data/incoming/`
-2. Inspect it
-3. Ingest it
-4. Query it in PostGIS
-
-Example:
-
-```bash
-bin/inspect data/incoming/elevation.tif
-bin/ingest-raster data/incoming/elevation.tif --table elevation
-```
-
-If you need to reproject during raster ingest:
-
-```bash
-bin/ingest-raster data/incoming/elevation.tif --table elevation --dst-crs EPSG:3035
-```
+PostGIS extensions and metadata tables are created automatically on first
+startup — nothing to prepare by hand.
 
 ## Common Commands
 
 | Command | Use it for |
 |---------|------------|
-| `bin/doctor` | Check that Docker, the database, and GIS tools are reachable |
-| `bin/inspect <path>` | Read dataset metadata before import |
+| `bin/doctor` | Check Docker, the database, and GIS tools are reachable |
+| `bin/inspect <path>` | Read dataset metadata and CRS status before import |
 | `bin/ingest-vector <path> --table <name>` | Load vector data into PostGIS |
 | `bin/ingest-raster <path> --table <name>` | Load raster data into PostGIS |
 | `bin/describe-table <schema.table>` | Check what was loaded or created |
-| `bin/run-sql <file> --ingest-id <id>` | Run a spatial SQL workflow |
-| `bin/export <path> --format gpkg|geojson --table <schema.table>` | Write a result file |
-| `bin/qc <path-or-table> [--expect-non-empty] [--metric-op] [--compare-to <ref>] [--id-column <c>] [--exact-stats]` | Deterministic metrics and warnings for a dataset or table |
+| `bin/run-sql <file> --ingest-id <id>` | Run a spatial SQL workflow against PostGIS |
+| `bin/duck-query <uri> [--bbox] [--where] [--output]` | Filter a Parquet/GeoParquet source in place with DuckDB, no ingest needed |
+| `bin/plan <operation> <uri>` | Show which engine (DuckDB or PostGIS) would run an operation, and why |
+| `bin/export <path> --format gpkg\|geojson --table <schema.table>` | Write a result file |
+| `bin/qc <path-or-table>` | Deterministic metrics and warnings for a dataset or table |
 | `bin/list-ingestions` | Review earlier ingests |
-| `bin/catalog-collections <catalog>` | Collections a STAC catalogue offers |
-| `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
-| `bin/catalog-item <item-url>` | One STAC item |
-| `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
-| `bin/raster-window <path-or-url> --bbox <minx,miny,maxx,maxy> [--zones <vector>] [--output <path>]` | Read an AOI out of a raster (local or remote COG) without downloading the scene |
-| `bin/preview <path-or-url> [--aoi <vector>]` | Render a dataset to a deterministic PNG with an AOI outline and graticule |
+| `bin/catalog-search <catalog> [--bbox] [--datetime]` | Find STAC items by area and time |
+| `bin/catalog-assets <item-url>` | Asset hrefs and what can read them |
+| `bin/raster-window <path-or-url> --bbox <box>` | Read an AOI out of a raster (local or remote COG) without downloading it |
+| `bin/preview <path-or-url> [--aoi <vector>]` | Render a dataset to a deterministic PNG with an AOI outline |
 
-## What Gets Created Automatically
+Every command prints JSON. If CRS status is `missing` or `suspicious`,
+re-ingest with `--src-crs EPSG:XXXX` rather than trusting the auto-detected
+value.
 
-On first startup, the system creates:
-- the PostgreSQL database container
-- PostGIS extensions
-- a metadata table for tracking ingests
+## Roadmap
 
-You do not need to create schemas or extensions by hand before using the system.
+All 7 phases are merged to `main`. Each phase's design and rationale live in
+`docs/superpowers/specs/`:
 
-## Troubleshooting
+| Phase | Delivered | Spec |
+|-------|-----------|------|
+| 0 — Regression baseline | Test harness before any change | — |
+| 1 — Agent-oriented CLI contract | JSON-only, non-interactive `bin/*` commands | [guided-cli-experience](docs/superpowers/specs/2026-03-30-guided-cli-experience-design.md) |
+| 2 — DuckDB spatial execution path | Query Parquet/GeoParquet and remote data without loading it first | — |
+| 3 — Deterministic QC | `bin/qc` metrics and warnings on exports | [deterministic-qc](docs/superpowers/specs/2026-09-07-deterministic-qc-design.md) |
+| 4 — STAC discovery | `bin/catalog-*` commands against STAC catalogues | [stac-discovery](docs/superpowers/specs/2026-09-07-stac-discovery-design.md) |
+| 5 — Asset abstraction | Common dataset-descriptor shape across `inspect`/`describe`/catalog | [asset-abstraction](docs/superpowers/specs/2026-09-07-asset-abstraction-design.md) |
+| 6 — Execution strategy layer | `bin/plan` chooses DuckDB vs. PostGIS per operation | [execution-planner](docs/superpowers/specs/2026-09-10-execution-planner-design.md) |
+| 7 — Cloud raster and preview | `bin/raster-window`, `bin/preview`; GDAL reads remote COGs via `/vsicurl` | [cloud-raster-and-preview](docs/superpowers/specs/2026-09-10-cloud-raster-and-preview-design.md) |
 
-### `docker compose up` does not start cleanly
-
-Check:
-- Docker Desktop or Docker Engine is running
-- no other local service is already using the required Docker resources
-
-Then retry:
-
-```bash
-docker compose up -d --build
-```
-
-### `bin/doctor` fails
-
-This usually means:
-- Docker is not running
-- the database container is not healthy yet
-- the build did not complete cleanly
-
-Check status:
-
-```bash
-docker compose ps
-```
-
-### `bin/inspect` says CRS is missing or suspicious
-
-Do not ignore that.
-
-Find the correct CRS for the source data, then ingest again with:
-
-```bash
---src-crs EPSG:XXXX
-```
-
-### SQL runs but cannot find the table you expect
-
-Check:
-- you used the right `ingest_id`
-- you created `analysis_<ingest_id>` in your SQL file
-- you confirmed the raw table name with `bin/describe-table`
+Full status detail and feature-by-feature tracking:
+[`docs/plans/2026-09-04_improvement_plan_revised.md`](docs/plans/2026-09-04_improvement_plan_revised.md).
 
 ## Running The Tests
 
@@ -320,34 +123,18 @@ bin/test              # offline suite, no database needed
 bin/test -m live      # full workflow against PostGIS; needs `docker compose up -d db`
 ```
 
-`bin/test` is the supported way to run the suite: it uses the same GDAL the
-workflow uses. The offline tests also run directly on the host with
-`uv run pytest`, which is faster but needs `uv` plus the GDAL command line
-tools (`ogrinfo`, `gdalinfo`) installed locally. A host GDAL of a different
-version than the container's can report slightly different metadata, so
-`bin/test` is the one that counts.
+`bin/test` runs inside the container, using the same GDAL the workflow uses,
+and is the one that counts in CI. `uv run pytest` on the host works for the
+offline suite too, but a different host GDAL version can report slightly
+different metadata.
 
-## Keeping Dependencies Current
+## Where To Find More
 
-Dependabot opens weekly pull requests for Python packages, the GDAL base
-image, and GitHub Actions, configured in `.github/dependabot.yml`. Security
-fixes are grouped separately from routine version bumps so they can be merged
-on their own. Every pull request runs the full suite in CI, including a check
-that container output is not owned by root.
+This README is the operator's entry point. For deeper detail:
 
-To upgrade everything by hand:
-
-```bash
-uv lock --upgrade && uv sync
-bin/test && bin/test -m live
-```
-
-## Where To Find More Technical Detail
-
-This README is for human operators.
-
-If you are building agent workflows, extending commands, or working on the automation itself, use:
-- [`AGENTS.md`](AGENTS.md)
-- [`docs/llm/README.md`](docs/llm/README.md)
-- [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md)
-- [`docs/llm/OUTPUT_SCHEMA.md`](docs/llm/OUTPUT_SCHEMA.md) — every command's exact JSON keys, and the error envelope
+- [`AGENTS.md`](AGENTS.md) — how agents should operate this workspace
+- [`docs/llm/README.md`](docs/llm/README.md) — full command reference and canonical paths
+- [`docs/llm/QUICKSTART.md`](docs/llm/QUICKSTART.md) — worked examples
+- [`docs/llm/OUTPUT_SCHEMA.md`](docs/llm/OUTPUT_SCHEMA.md) — every command's exact JSON keys and error envelope
+- [`docs/superpowers/specs/`](docs/superpowers/specs/) — design rationale for each roadmap phase
+- [`docs/plans/2026-09-04_improvement_plan_revised.md`](docs/plans/2026-09-04_improvement_plan_revised.md) — roadmap status in full
