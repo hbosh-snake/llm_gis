@@ -38,11 +38,25 @@ bin/catalog-collections <catalog>
 bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]
 bin/catalog-item <item-url>
 bin/catalog-assets <item-url> [--role] [--media-type]
+bin/raster-window <path-or-url> --bbox <minx,miny,maxx,maxy> [--bbox-crs] [--t-srs] [--zones <vector>] [--zone-stat] [--output <path>]
+bin/preview <path-or-url> [--aoi <vector>] [--output <path-stem>]
 ```
 
 STAC discovery never downloads. `<catalog>` is an alias (`overture`, `cdse`, `earth-search`)
 or any https URL. `catalog-search --bbox` is always lon/lat WGS84; `duck-query --bbox` is in
-the data's own CRS — same flag name, different meaning.
+the data's own CRS — same flag name, different meaning. `raster-window --bbox` defaults to
+lon/lat WGS84 too, but takes `--bbox-crs` to give it in the raster's own CRS instead.
+
+## Engine choice: raster
+
+Raster has exactly one choice, not several: window it, or ingest it. `bin/plan` routes a
+raster source to `GDAL` (read the AOI in place, no persistence) unless `--materialise` is
+given, in which case it routes to `POSTGIS` via `stage` + `ingest-raster`. There is no
+DuckDB path for raster. A remote COG is read through `/vsicurl` range requests — reading a
+window costs only the window's bytes, not the scene, and `bin/plan`'s `REMOTE_RANGE_READ`
+warning says so explicitly (it is the efficient case, the opposite of the
+`REMOTE_UNINDEXED_READ` warning a remote vector file carries). `analyse` has no raster
+route: pixel statistics by area go through `bin/raster-window --zones`, not through SQL.
 
 ## Source-of-Truth Checkpoint
 

@@ -5,7 +5,17 @@ from __future__ import annotations
 import pytest
 
 from llm_gis.errors import UNSUPPORTED_FORMAT, GisError
-from llm_gis.planner import DUCKDB, NO_CONVERSION_PATH, POSTGIS, classify, route, steps
+from llm_gis.planner import (
+    DUCKDB,
+    GDAL,
+    NO_CONVERSION_PATH,
+    POSTGIS,
+    RASTER,
+    REMOTE_RANGE_READ,
+    classify,
+    route,
+    steps,
+)
 
 
 def test_a_local_geoparquet_is_parquet_and_duckdb_only():
@@ -38,11 +48,11 @@ def test_a_schema_qualified_name_is_a_postgis_table():
     assert source.readers == [POSTGIS]
 
 
-def test_a_raster_has_no_reader_yet():
-    """Phase 7 owns cloud raster. Saying so beats guessing a route."""
+def test_a_local_raster_is_readable_by_gdal_and_postgis():
+    """Phase 7 fills raster's reader row; a local raster has the same two routes."""
     source = classify("/data/incoming/dem.tif")
     assert source.format == "raster"
-    assert source.readers == []
+    assert source.readers == [GDAL, POSTGIS]
 
 
 def test_an_unrecognised_suffix_is_an_error_not_a_guess():
@@ -111,10 +121,58 @@ def test_analysing_a_parquet_source_is_blocked_the_same_way():
     assert result.blocked_by["code"] == NO_CONVERSION_PATH
 
 
-def test_a_raster_has_no_route_at_all():
-    with pytest.raises(GisError) as caught:
-        _route("query", "/data/incoming/dem.tif")
-    assert caught.value.code == UNSUPPORTED_FORMAT
+def test_a_cog_is_readable_by_gdal_and_postgis():
+    """Two live routes, not one dressed up: read the window, or ingest the raster."""
+    source = classify("https://e.com/scenes/B04.tif")
+    assert source.format == RASTER
+    assert source.readers == [GDAL, POSTGIS]
+
+
+def test_a_raster_query_without_materialise_reads_the_window_in_place():
+    decided = route("query", classify("https://e.com/B04.tif"))
+    assert decided.strategy == GDAL
+    assert decided.fallback["strategy"] == POSTGIS
+
+
+def test_a_raster_query_with_materialise_goes_to_the_workspace():
+    decided = route("query", classify("/data/incoming/elevation.tif"), materialise=True)
+    assert decided.strategy == POSTGIS
+    assert "survive" in decided.reason
+
+
+def test_a_remote_cog_read_is_flagged_efficient_not_unindexed():
+    """The opposite of REMOTE_UNINDEXED_READ: this is the case ranges were made for."""
+    decided = route("query", classify("https://e.com/B04.tif"))
+    codes = [w["code"] for w in decided.warnings]
+    assert REMOTE_RANGE_READ in codes
+    assert "REMOTE_UNINDEXED_READ" not in codes
+
+
+def test_a_local_raster_read_carries_no_range_warning():
+    decided = route("query", classify("/data/incoming/elevation.tif"))
+    assert decided.warnings == []
+
+
+def test_analyse_on_a_raster_is_blocked_and_names_zones():
+    decided = route("analyse", classify("https://e.com/B04.tif"))
+    assert decided.strategy is None
+    assert "--zones" in decided.blocked_by["suggested_action"]
+
+
+def test_a_raster_query_plans_a_raster_window_step():
+    source = classify("https://e.com/B04.tif")
+    decided = route("query", source)
+    plan = steps("query", source, decided, bbox="8.9,45.9,9.0,46.0", output="/data/outgoing/aoi.tif")
+    assert [s.command for s in plan] == ["raster-window"]
+    assert "--bbox" in plan[0].argv
+    assert "--output" in plan[0].argv
+
+
+def test_a_materialised_raster_plans_stage_then_ingest_raster():
+    source = classify("/data/incoming/elevation.tif")
+    decided = route("query", source, materialise=True)
+    plan = steps("query", source, decided)
+    assert [s.command for s in plan] == ["stage", "ingest-raster"]
 
 
 def test_an_engine_override_beats_the_rules_and_says_so():

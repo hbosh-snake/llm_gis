@@ -12,10 +12,16 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from pyproj import CRS
+from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError
 
-from llm_gis.errors import COMMAND_FAILED, INPUT_NOT_FOUND, PATH_OUTSIDE_ROOT, GisError
+from llm_gis.errors import (
+    COMMAND_FAILED,
+    INPUT_NOT_FOUND,
+    PATH_OUTSIDE_ROOT,
+    REMOTE_READ_FAILED,
+    GisError,
+)
 
 
 def utc_now() -> str:
@@ -84,6 +90,51 @@ def _redact(text: str) -> str:
     """Strip credentials from anything that reaches machine-readable output."""
     text = re.sub(r"(password=)[^\s'\"]+", r"\1***", text)
     return re.sub(r"(://[^:/\s]+:)[^@\s]+(@)", r"\1***\2", text)
+
+
+REMOTE_SCHEMES = ("http://", "https://", "s3://")
+
+
+def is_remote(uri: str) -> bool:
+    """Whether this source lives behind a network scheme rather than on disk.
+
+    `planner.py` states the same tuple and deliberately does not import it: the
+    planner stays free of this module's psycopg and pyproj imports so its whole
+    test suite runs with no database.
+    """
+    return str(uri).startswith(REMOTE_SCHEMES)
+
+
+def gdal_uri(uri: str) -> str:
+    """A source as GDAL must be handed it: the VSI convention, stated once.
+
+    Every GDAL invocation in this workspace goes through here, so a remote read
+    is a range request rather than a download without any call site saying so.
+    """
+    text = str(uri)
+    if text.startswith(("http://", "https://")):
+        return f"/vsicurl/{text}"
+    if text.startswith("s3://"):
+        return f"/vsis3/{text[len('s3://'):]}"
+    return text
+
+
+def remote_read_error(uri: str, error: GisError) -> GisError:
+    """A failed range request, named as one.
+
+    GDAL reports an HTTP failure as a generic non-zero exit, which reads like a
+    malformed file. Pulling the status out means a 403 on a requester-pays bucket
+    suggests credentials rather than a corrupt raster.
+    """
+    stderr = str(error.details.get("stderr", ""))
+    match = re.search(r"HTTP response code:\s*(\d{3})", stderr)
+    status = int(match.group(1)) if match else None
+    return GisError(
+        REMOTE_READ_FAILED,
+        f"Could not read {uri} over HTTP",
+        "Check the URI, and whether the bucket needs credentials or is requester-pays",
+        {"uri": uri, "http_status": status, "stderr": stderr[-500:]},
+    )
 
 
 def run_command(
@@ -184,6 +235,23 @@ def normalize_crs(crs_text: str | None) -> str | None:
         return f"EPSG:{epsg}"
     authority = crs.to_authority()
     return f"{authority[0]}:{authority[1]}" if authority else crs_text
+
+
+def reproject_bbox(
+    bbox: dict[str, float] | None, src_crs: str | None, dst_crs: str | None
+) -> dict[str, float] | None:
+    """Transform a bbox, densifying the edges so a curved edge is not clipped off.
+
+    Shared by QC's disjointness check and by the raster reader, which reports every
+    window in its native CRS and in 4326 so a caller can compare the two.
+    """
+    if bbox is None or not src_crs or not dst_crs or src_crs == dst_crs:
+        return bbox
+    transformer = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+    minx, miny, maxx, maxy = transformer.transform_bounds(
+        bbox["minx"], bbox["miny"], bbox["maxx"], bbox["maxy"]
+    )
+    return {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy}
 
 
 def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[str, list[str]]:

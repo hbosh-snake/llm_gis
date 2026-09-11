@@ -22,6 +22,8 @@ from llm_gis.list_ingestions import list_ingestions
 from llm_gis.planner import plan as plan_operation
 from llm_gis.qc import QcContext, qc_report, reference_for
 from llm_gis.query import query as duck_query
+from llm_gis.preview import render as preview_render
+from llm_gis.raster import window as raster_window
 from llm_gis.run_sql import run_sql_file
 from llm_gis.stage import stage_input
 
@@ -76,10 +78,45 @@ def stage_cmd(
 @app.command("inspect")
 @handle_errors
 def inspect_cmd(
-    input_path: Path = typer.Argument(..., help="Path to vector/raster input"),
+    source: str = typer.Argument(..., help="Path or http/https/s3 URI to a vector or raster"),
     ingest_id: str | None = typer.Option(None, help="Optional report id"),
 ) -> None:
-    _emit("inspect", inspect_dataset(input_path, ingest_id=ingest_id))
+    _emit("inspect", inspect_dataset(source, ingest_id=ingest_id))
+
+
+@app.command("raster-window")
+@handle_errors
+def raster_window_cmd(
+    source: str = typer.Argument(..., help="Path or http/https/s3 URI to a raster"),
+    bbox: str = typer.Option(..., "--bbox", help="minx,miny,maxx,maxy"),
+    bbox_crs: str = typer.Option("EPSG:4326", "--bbox-crs", help="CRS the bbox is given in"),
+    band: int = typer.Option(1, "--band", help="Band to export, 1-based"),
+    t_srs: str | None = typer.Option(None, "--t-srs", help="Reproject the window to this CRS"),
+    stats: bool = typer.Option(True, "--stats/--no-stats", help="Exact statistics over the window"),
+    output: str | None = typer.Option(None, "--output", help="Write a COG here; omit to write nothing"),
+    zones: str | None = typer.Option(None, "--zones", help="Vector dataset of zones for statistics by area"),
+    zone_stat: list[str] = typer.Option([], "--zone-stat", help="Statistic per zone; repeatable"),
+    ingest_id: str | None = typer.Option(None, help="Optional report id"),
+) -> None:
+    values = _parse_bbox(bbox)
+    _emit(
+        "raster-window",
+        raster_window(
+            source, bbox=tuple(values), bbox_crs=bbox_crs, band=band,
+            t_srs=t_srs, stats=stats, output=output,
+            zones=zones, zone_stats=list(zone_stat) or None, ingest_id=ingest_id,
+        ),
+    )
+
+
+@app.command("preview")
+@handle_errors
+def preview_cmd(
+    dataset: str = typer.Argument(..., help="Path or URI to a vector or raster"),
+    aoi: str | None = typer.Option(None, "--aoi", help="Vector dataset to draw as an outline"),
+    output: str | None = typer.Option(None, "--output", help="Path stem; .png and .preview.json are written"),
+) -> None:
+    _emit("preview", preview_render(dataset, aoi=aoi, output=output))
 
 
 @app.command("ingest-vector")
@@ -148,6 +185,7 @@ def qc_cmd(
     compare_to: str | None = typer.Option(None, "--compare-to", help="File or table whose extent this should overlap"),
     id_column: str | None = typer.Option(None, "--id-column", help="Column to check for duplicate identifiers"),
     exact_stats: bool = typer.Option(False, "--exact-stats", help="Full raster pixel scan instead of an approximation"),
+    bbox: str | None = typer.Option(None, "--bbox", help="Restrict raster QC to this AOI, minx,miny,maxx,maxy in EPSG:4326"),
 ) -> None:
     """Deterministic metrics and warnings for a dataset or a table."""
     context = QcContext(
@@ -156,7 +194,13 @@ def qc_cmd(
         id_column=id_column,
         reference=reference_for(compare_to) if compare_to else None,
     )
-    _emit("qc", qc_report(ref, context, exact_stats=exact_stats))
+    values = _parse_bbox(bbox)
+    bbox_dict = (
+        {"minx": values[0], "miny": values[1], "maxx": values[2], "maxy": values[3]}
+        if values
+        else None
+    )
+    _emit("qc", qc_report(ref, context, exact_stats=exact_stats, bbox=bbox_dict))
 
 
 @app.command("duck-describe")
@@ -234,7 +278,10 @@ def plan_cmd(
 
 
 def _parse_bbox(bbox: str | None) -> list[float] | None:
-    """Four comma-separated numbers, always lon/lat WGS84 for STAC."""
+    """Four comma-separated numbers as minx,miny,maxx,maxy.
+
+    STAC search always means lon/lat WGS84; raster-window means whatever --bbox-crs says.
+    """
     if bbox is None:
         return None
     parts = [p.strip() for p in bbox.split(",")]

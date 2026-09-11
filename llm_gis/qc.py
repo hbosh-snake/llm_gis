@@ -11,10 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from pyproj import Transformer
-
 from llm_gis import qc_collect
-from llm_gis.common import crs_status, parse_crs, utc_now
+from llm_gis.common import crs_status, is_remote, parse_crs, reproject_bbox, utc_now
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, INPUT_NOT_FOUND, GisError
 
 SEVERITY = "warning"
@@ -32,17 +30,6 @@ class QcContext:
 
 def _result(code: str, result: str, message: str) -> dict[str, Any]:
     return {"code": code, "severity": SEVERITY, "result": result, "message": message}
-
-
-def reproject_bbox(bbox: dict[str, float] | None, src_crs: str | None, dst_crs: str | None) -> dict[str, float] | None:
-    """Transform a bbox, densifying the edges so a curved edge is not clipped off."""
-    if bbox is None or not src_crs or not dst_crs or src_crs == dst_crs:
-        return bbox
-    transformer = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
-    minx, miny, maxx, maxy = transformer.transform_bounds(
-        bbox["minx"], bbox["miny"], bbox["maxx"], bbox["maxy"]
-    )
-    return {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy}
 
 
 def _intersects(a: dict[str, float], b: dict[str, float]) -> bool:
@@ -136,6 +123,8 @@ def build_report(source: dict, metrics: dict, context: QcContext) -> dict[str, A
 
 def resolve_source(ref: str) -> dict[str, str]:
     """A path if one exists on disk, otherwise schema.table."""
+    if is_remote(ref):
+        return {"kind": "file", "ref": ref}
     path = Path(ref)
     if path.exists():
         return {"kind": "file", "ref": ref}
@@ -149,11 +138,13 @@ def resolve_source(ref: str) -> dict[str, str]:
     )
 
 
-def qc_report(ref: str, context: QcContext, *, exact_stats: bool = False) -> dict[str, Any]:
+def qc_report(
+    ref: str, context: QcContext, *, exact_stats: bool = False, bbox: dict | None = None
+) -> dict[str, Any]:
     """Collect metrics for one source and judge them against the declared context."""
     resolved = resolve_source(ref)
     if resolved["kind"] == "file":
-        source, metrics = qc_collect.file_metrics(Path(ref), context.id_column, exact_stats)
+        source, metrics = qc_collect.file_metrics(ref, context.id_column, exact_stats, bbox)
     else:
         source, metrics = qc_collect.table_metrics(
             resolved["schema"], resolved["table"], context.id_column

@@ -81,6 +81,36 @@ Raster result: same shape, with `dataset_kind: "raster"`, `size` (`[width, heigh
 (`[{band, type, nodata}, ...]`) instead of `layers`, and `raw` holding the full `gdalinfo -json`
 output.
 
+### `bin/raster-window`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `source` | string | The path or URI read. |
+| `bbox` | object | The requested AOI, `{minx, miny, maxx, maxy}` in `bbox_crs`. |
+| `bbox_crs` | string | The CRS `--bbox` was given in, default `EPSG:4326`. |
+| `crs` | string \| null | The window's CRS: the scene's own, or `--t-srs` when reprojected. |
+| `size` | array \| null | `[width, height]` of the window in pixels, null when the AOI misses the raster. |
+| `bbox_native` | object \| null | The window's true extent in `crs`. |
+| `bbox_4326` | object \| null | The window's extent reprojected to `EPSG:4326`, for comparison across CRSes. |
+| `aoi_intersects` | boolean | Whether the AOI overlaps the raster; false is a finding, not an error. |
+| `bands` | array | Per-band statistics: `{index, nodata, min, max, mean, stdev, percent_nodata}`. |
+| `zonal` | array \| null | One object per `--zones` feature when zones were given, else null. |
+| `output` | string \| null | Path of the COG written, only when `--output` was given; no pixels otherwise. |
+| `created_at` | string | UTC timestamp. |
+
+### `bin/preview`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `png` | string | Path to the rendered PNG. |
+| `sidecar` | string | Path to the `.preview.json` alongside it, holding the same payload. |
+| `kind` | string | `"raster"` or `"vector"`. |
+| `dataset` | object | `{uri, kind}` of the dataset rendered. |
+| `frame` | object | `{bbox_4326, size, resampling}` — the rendered extent, always EPSG:4326. |
+| `render` | object | `{channels: {r, g, b}, scale: {min, max}, graticule_degrees}`. |
+| `summary` | object | `{crs, bbox, bbox_4326, bands, aoi_intersects}` from the same collectors `bin/qc` uses. |
+| `created_at` | string | UTC timestamp. |
+
 ### `bin/ingest-vector`
 
 | Key | Type | Meaning |

@@ -257,6 +257,8 @@ bin/ingest-raster data/incoming/elevation.tif --table elevation --dst-crs EPSG:3
 | `bin/catalog-search <catalog> [--collection] [--bbox] [--datetime] [--limit]` | Find items by area and time |
 | `bin/catalog-item <item-url>` | One STAC item |
 | `bin/catalog-assets <item-url> [--role] [--media-type]` | Asset hrefs, advertised metadata, and what can read them |
+| `bin/raster-window <path-or-url> --bbox <minx,miny,maxx,maxy> [--zones <vector>] [--output <path>]` | Read an AOI out of a raster (local or remote COG) without downloading the scene |
+| `bin/preview <path-or-url> [--aoi <vector>]` | Render a dataset to a deterministic PNG with an AOI outline and graticule |
 
 ## What Gets Created Automatically
 
