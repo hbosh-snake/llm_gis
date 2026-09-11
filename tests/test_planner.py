@@ -107,12 +107,13 @@ def test_exporting_a_file_never_enters_the_database():
     assert _route("export", "analysis_aoi.result").strategy == POSTGIS
 
 
-def test_materialising_a_parquet_source_is_blocked_with_the_reason():
-    """GDAL here has no Parquet driver and duck-query writes Parquet. Say so."""
+def test_materialising_a_parquet_source_converts_through_geopackage():
+    """duck-query --format geopackage closes the conversion gap GDAL's missing
+    Parquet driver would otherwise leave open."""
     result = _route("query", "/data/incoming/buildings.parquet", materialise=True)
-    assert result.strategy is None
-    assert result.blocked_by["code"] == NO_CONVERSION_PATH
-    assert result.blocked_by["suggested_action"]
+    assert result.strategy == POSTGIS
+    assert result.blocked_by is None
+    assert result.fallback["strategy"] == DUCKDB
 
 
 def test_analysing_a_parquet_source_is_blocked_the_same_way():
@@ -231,6 +232,22 @@ def test_a_materialised_query_stages_ingests_and_exports():
     assert "ST_MakeEnvelope(8.5,45.0,9.5,45.6, ST_SRID(geom))" in plan[2].argv[-1]
 
 
+def test_a_materialised_parquet_query_converts_then_ingests_then_exports():
+    source = classify("/data/incoming/buildings.parquet")
+    decided = route("query", source, materialise=True)
+    plan = steps("query", source, decided, output="/data/outgoing/2026-09-10_aoi/result.gpkg")
+    assert [s.command for s in plan] == ["duck-query", "ingest-vector", "export"]
+    assert plan[0].argv == [
+        "/data/incoming/buildings.parquet", "--format", "geopackage",
+        "--output", "/data/work/staging/buildings/buildings.gpkg",
+    ]
+    assert plan[1].argv == [
+        "/data/work/staging/buildings/buildings.gpkg", "--table", "buildings",
+        "--ingest-id", "buildings",
+    ]
+    assert plan[2].argv[0] == "/data/outgoing/2026-09-10_aoi/result.gpkg"
+
+
 def test_the_ingest_id_is_derived_so_every_step_pastes_without_editing():
     """stage picks a timestamped id unless told one; the plan tells it one."""
     source = classify("/data/incoming/Milano AOI.gpkg")
@@ -249,8 +266,8 @@ def test_an_analyse_plan_runs_sql_between_ingest_and_export():
 
 def test_a_blocked_route_produces_no_steps():
     source = classify("/data/incoming/buildings.parquet")
-    decided = route("query", source, materialise=True)
-    assert steps("query", source, decided) == []
+    decided = route("analyse", source)
+    assert steps("analyse", source, decided) == []
 
 
 def test_every_step_explains_itself():

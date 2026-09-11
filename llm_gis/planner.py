@@ -159,7 +159,11 @@ def _query_route(source: Source, materialise: bool) -> Route:
         return Route(POSTGIS, "the table is already in the workspace")
     if source.format == PARQUET:
         if materialise:
-            return _blocked("a Parquet source cannot reach the workspace today")
+            return Route(
+                POSTGIS,
+                "duck-query --format geopackage converts the source, then ingest-vector loads it",
+                fallback={"strategy": DUCKDB, "requires": None, "loses": "persistence"},
+            )
         return Route(DUCKDB, "DuckDB reads Parquet in place; no database is needed")
     if source.format == RASTER:
         if materialise:
@@ -315,6 +319,16 @@ def _postgis_predicate(bbox: str | None, where: str | None) -> str:
 
 def _materialise_steps(source: Source) -> list[Step]:
     ingest_id = _ingest_id(source.uri)
+    if source.format == PARQUET:
+        gpkg_path = f"/data/work/staging/{ingest_id}/{ingest_id}.gpkg"
+        return [
+            Step("duck-query",
+                 [source.uri, "--format", "geopackage", "--output", gpkg_path],
+                 "convert the Parquet source to GeoPackage, the format ingest-vector can load"),
+            Step("ingest-vector",
+                 [gpkg_path, "--table", ingest_id, "--ingest-id", ingest_id],
+                 "load it into PostGIS, where later steps can reach it"),
+        ]
     name = Path(source.uri.split("?")[0]).name
     return [
         Step("stage", [source.uri, "--ingest-id", ingest_id],

@@ -1,5 +1,6 @@
 """DuckDB path: everything here runs offline against the committed fixture."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,26 @@ def test_writing_a_subset_round_trips(tmp_path):
     written = describe(str(out))
     assert written["row_count"] == 1
     assert written["crs"] == "EPSG:4326"
+
+
+def test_writing_a_subset_as_geopackage_produces_an_ingestible_file(tmp_path):
+    """The conversion path bin/plan points to for a materialised Parquet query."""
+    import subprocess
+
+    out = tmp_path / "subset.gpkg"
+    result = query(FIXTURE, bbox=(10.0, 45.0, 10.15, 45.15), output_path=out, output_format="geopackage")
+    assert result["output_format"] == "geopackage"
+    assert out.exists()
+    info = json.loads(subprocess.run(
+        ["ogrinfo", "-json", "-ro", str(out)], capture_output=True, text=True, check=True
+    ).stdout)
+    assert info["layers"][0]["featureCount"] == 1
+
+
+def test_an_unsupported_output_format_is_refused():
+    with pytest.raises(GisError) as caught:
+        query(FIXTURE, output_path=Path("/tmp/x.shp"), output_format="shapefile")
+    assert caught.value.code == "UNSUPPORTED_FORMAT"
 
 
 def test_bbox_without_geometry_is_refused(tmp_path):

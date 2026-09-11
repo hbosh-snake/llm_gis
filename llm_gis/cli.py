@@ -221,7 +221,8 @@ def duck_query_cmd(
     where: str | None = typer.Option(None, "--where", help="SQL predicate on attributes"),
     columns: str | None = typer.Option(None, "--columns", help="Comma-separated columns to keep"),
     limit: int | None = typer.Option(None, "--limit", help="Maximum rows"),
-    output_path: Path | None = typer.Option(None, "--output", help="Write matches to this GeoParquet file"),
+    output_path: Path | None = typer.Option(None, "--output", help="Write matches to this file"),
+    output_format: str = typer.Option("parquet", "--format", help="parquet (default) or geopackage"),
 ) -> None:
     """Filter a Parquet source by bbox and attributes, optionally writing the subset.
 
@@ -244,6 +245,7 @@ def duck_query_cmd(
             columns=[c.strip() for c in columns.split(",")] if columns else None,
             limit=limit,
             output_path=output_path,
+            output_format=output_format,
         ),
     )
 

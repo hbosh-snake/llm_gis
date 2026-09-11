@@ -13,7 +13,12 @@ from typing import Any
 import duckdb
 
 from llm_gis.duck import connect, describe
-from llm_gis.errors import COMMAND_FAILED, MISSING_ARGUMENT, GisError
+from llm_gis.errors import COMMAND_FAILED, MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
+
+OUTPUT_COPY_CLAUSE = {
+    "parquet": "(FORMAT PARQUET)",
+    "geopackage": "WITH (FORMAT GDAL, DRIVER 'GPKG')",
+}
 
 
 def _bbox_predicate(column: str, bbox: tuple[float, float, float, float]) -> str:
@@ -32,6 +37,7 @@ def query(
     columns: list[str] | None = None,
     limit: int | None = None,
     output_path: Path | None = None,
+    output_format: str = "parquet",
 ) -> dict[str, Any]:
     """Filter a Parquet source, returning a summary or writing a subset.
 
@@ -39,7 +45,19 @@ def query(
     crs), not lon/lat WGS84. This differs from catalog-search's --bbox,
     which is always WGS84. A bbox taken from catalog-search must be
     reprojected to the source CRS before it is handed to duck-query.
+
+    --format geopackage writes an ingestible file instead of Parquet, through
+    DuckDB's own bundled GDAL rather than the agent image's GDAL (which has
+    no Parquet driver to read the source with in the first place). This is
+    the conversion path bin/plan points to for a Parquet source that needs
+    --materialise.
     """
+    if output_format not in OUTPUT_COPY_CLAUSE:
+        raise GisError(
+            UNSUPPORTED_FORMAT,
+            f"Unsupported duck-query output format: {output_format}",
+            f"Use one of: {', '.join(OUTPUT_COPY_CLAUSE)}",
+        )
     source = describe(uri)
     geometry_column = source["geometry_column"]
 
@@ -56,6 +74,13 @@ def query(
     tail = f" LIMIT {int(limit)}" if limit else ""
     statement = f"SELECT {selected} FROM read_parquet(?){clause}{tail}"
 
+    # GeoPackage assigns its own FID; a source "fid" column of the same name
+    # otherwise conflicts with it in DuckDB's GDAL writer.
+    write_selected = selected
+    if output_format == "geopackage" and columns is None and any(c["name"] == "fid" for c in source["columns"]):
+        write_selected = '* EXCLUDE ("fid")'
+    write_statement = f"SELECT {write_selected} FROM read_parquet(?){clause}{tail}"
+
     connection = connect()
     try:
         matched = connection.execute(
@@ -63,8 +88,9 @@ def query(
         ).fetchone()[0]
         if output_path:
             output_path.parent.mkdir(parents=True, exist_ok=True)
+            copy_clause = OUTPUT_COPY_CLAUSE[output_format]
             connection.execute(
-                f"COPY ({statement}) TO '{output_path}' (FORMAT PARQUET)", [uri]
+                f"COPY ({write_statement}) TO '{output_path}' {copy_clause}", [uri]
             )
     except duckdb.Error as error:
         raise GisError(
@@ -82,5 +108,6 @@ def query(
         "bbox": list(bbox) if bbox else None,
         "where": where,
         "output_path": str(output_path) if output_path else None,
+        "output_format": output_format,
         "engine": "duckdb",
     }

@@ -40,10 +40,20 @@ def test_materialising_switches_the_route_and_the_steps():
 
 def test_a_blocked_plan_is_a_successful_answer_not_an_error():
     """'There is no route' answers the question that was asked."""
-    payload = _run_ok(["plan", "query", "/data/incoming/b.parquet", "--materialise"])
+    payload = _run_ok(["plan", "analyse", "/data/incoming/b.parquet"])
     assert payload["strategy"] is None
     assert payload["steps"] == []
     assert payload["blocked_by"]["code"] == "NO_CONVERSION_PATH"
+
+
+def test_materialising_a_parquet_source_converts_through_geopackage():
+    """The conversion gap duck-query --format geopackage closes."""
+    payload = _run_ok(["plan", "query", "/data/incoming/b.parquet", "--materialise"])
+    assert payload["strategy"] == "postgis"
+    assert payload["blocked_by"] is None
+    assert [s["command"] for s in payload["steps"]] == ["duck-query", "ingest-vector", "export"]
+    assert "--format" in payload["steps"][0]["argv"]
+    assert "geopackage" in payload["steps"][0]["argv"]
 
 
 def test_an_impossible_override_exits_one_with_a_code():
