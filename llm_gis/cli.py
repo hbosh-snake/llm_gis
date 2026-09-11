@@ -223,7 +223,12 @@ def duck_query_cmd(
     limit: int | None = typer.Option(None, "--limit", help="Maximum rows"),
     output_path: Path | None = typer.Option(None, "--output", help="Write matches to this GeoParquet file"),
 ) -> None:
-    """Filter a Parquet source by bbox and attributes, optionally writing the subset."""
+    """Filter a Parquet source by bbox and attributes, optionally writing the subset.
+
+    --bbox is in the source's own CRS, unlike catalog-search's --bbox, which
+    is always lon/lat WGS84. Reproject a bbox from catalog-search before
+    passing it here.
+    """
     parsed_bbox = None
     if bbox:
         parts = [p.strip() for p in bbox.split(",")]
@@ -309,7 +314,11 @@ def catalog_search_cmd(
     datetime_spec: str | None = typer.Option(None, "--datetime", help="RFC 3339 instant or start/end range"),
     limit: int = typer.Option(100, "--limit", help="Maximum items to return"),
 ) -> None:
-    """Find items by area and time. Discovery only: no asset bytes are fetched."""
+    """Find items by area and time. Discovery only: no asset bytes are fetched.
+
+    --bbox is always lon/lat WGS84, unlike duck-query's --bbox, which is in
+    the source's own CRS. Reproject before handing a bbox from one to the other.
+    """
     _emit(
         "catalog-search",
         catalog_ops.search_items(

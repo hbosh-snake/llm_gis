@@ -229,7 +229,12 @@ def search_items(
     datetime_spec: str | None = None,
     limit: int = DEFAULT_LIMIT,
 ) -> dict:
-    """Items matching an area and a time range. Never fetches asset bytes."""
+    """Items matching an area and a time range. Never fetches asset bytes.
+
+    --bbox is always lon/lat WGS84 (the STAC spec's own coordinate system),
+    regardless of the CRS a matched asset's own data is stored in. This
+    differs from duck-query, whose --bbox is in the source's native CRS.
+    """
     endpoint = resolve_endpoint(catalog)
     mode = _mode_for(endpoint)
     backend = stac_fetch.search_api if mode == "search" else stac_fetch.traverse

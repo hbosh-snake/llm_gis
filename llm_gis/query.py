@@ -33,7 +33,13 @@ def query(
     limit: int | None = None,
     output_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Filter a Parquet source, returning a summary or writing a subset."""
+    """Filter a Parquet source, returning a summary or writing a subset.
+
+    --bbox is in the source's own CRS (whatever describe(uri) reports as its
+    crs), not lon/lat WGS84. This differs from catalog-search's --bbox,
+    which is always WGS84. A bbox taken from catalog-search must be
+    reprojected to the source CRS before it is handed to duck-query.
+    """
     source = describe(uri)
     geometry_column = source["geometry_column"]
 
