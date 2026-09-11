@@ -10,6 +10,7 @@ import pytest
 
 from llm_gis import exporter
 from llm_gis.common import run_command as real_run_command
+from llm_gis.errors import GisError
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -53,6 +54,30 @@ def test_a_sql_export_without_compare_to_cannot_check_the_bbox(written, monkeypa
         c for c in result["qc"]["checks"] if c["code"] == "RESULT_BBOX_DISJOINT_FROM_INPUT"
     )
     assert check["result"] == "not_evaluated"
+
+
+def test_expect_non_empty_passes_when_features_are_present(written, monkeypatch):
+    monkeypatch.setattr(exporter, "reference_for", lambda ref: {"ref": ref, "crs": None, "bbox": None})
+    result = exporter.export_result(written, "gpkg", table="raw_x.aoi", qc=True, expect_non_empty=True)
+    assert result["feature_count"] == 4
+
+
+def test_expect_non_empty_raises_on_an_empty_result(tmp_path, monkeypatch):
+    destination = tmp_path / "empty.gpkg"
+
+    def fake_run_command(cmd, **kwargs):
+        if cmd[0] == "ogr2ogr":
+            real_run_command(
+                ["ogr2ogr", "-f", "GPKG", str(destination), str(FIXTURES / "aoi.gpkg"), "-where", "1=0"]
+            )
+            return ""
+        return real_run_command(cmd, **kwargs)
+
+    monkeypatch.setattr(exporter, "run_command", fake_run_command)
+    monkeypatch.setattr(exporter, "reference_for", lambda ref: {"ref": ref, "crs": None, "bbox": None})
+    with pytest.raises(GisError) as excinfo:
+        exporter.export_result(destination, "gpkg", table="raw_x.aoi", qc=False, expect_non_empty=True)
+    assert excinfo.value.code == "EMPTY_EXPORT_RESULT"
 
 
 def test_compare_to_wins_over_the_source_table(written, monkeypatch):

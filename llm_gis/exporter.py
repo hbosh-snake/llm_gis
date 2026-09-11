@@ -5,8 +5,8 @@ from pathlib import Path
 
 from llm_gis.common import crs_text_from_ogr_coordinate_system, ensure_workspace_dirs, pg_gdal_dsn, run_command, work_root
 from llm_gis.duck import connect as duck_connect, describe as duck_describe
-from llm_gis.errors import MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
-from llm_gis.qc import QcContext, qc_report, reference_for
+from llm_gis.errors import EMPTY_EXPORT_RESULT, MISSING_ARGUMENT, UNSUPPORTED_FORMAT, GisError
+from llm_gis.qc import EMPTY_RESULT_UNEXPECTED, QcContext, qc_report, reference_for
 
 
 def _written_vector_summary(path: Path) -> tuple[int | None, str | None]:
@@ -52,6 +52,7 @@ def export_result(
     sql_query: str | None = None,
     qc: bool = True,
     compare_to: str | None = None,
+    expect_non_empty: bool = False,
 ) -> dict:
     ensure_workspace_dirs()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -107,6 +108,20 @@ def export_result(
         "feature_count": feature_count,
         "crs": crs,
     }
-    if qc:
-        result["qc"] = qc_report(str(output_path), QcContext(reference=_export_reference(table, compare_to)))
+    if qc or expect_non_empty:
+        qc_result = qc_report(
+            str(output_path),
+            QcContext(expect_non_empty=expect_non_empty, reference=_export_reference(table, compare_to)),
+        )
+        if qc:
+            result["qc"] = qc_result
+        if expect_non_empty:
+            failed = next((w for w in qc_result["warnings"] if w["code"] == EMPTY_RESULT_UNEXPECTED), None)
+            if failed:
+                raise GisError(
+                    EMPTY_EXPORT_RESULT,
+                    failed["message"],
+                    "Check the source table or query; nothing matched",
+                    {"output_path": str(output_path)},
+                )
     return result

@@ -166,12 +166,13 @@ def export_cmd(
     sql_query: str | None = typer.Option(None, "--sql", help="Custom SQL query"),
     qc: bool = typer.Option(True, "--qc/--no-qc", help="Attach a QC block to the result"),
     compare_to: str | None = typer.Option(None, "--compare-to", help="Table or file whose extent the result should overlap"),
+    expect_non_empty: bool = typer.Option(False, "--expect-non-empty", help="Fail if the exported result has zero features"),
 ) -> None:
     _emit(
         "export",
         export_result(
             output_path, output_format, table=table, sql_query=sql_query,
-            qc=qc, compare_to=compare_to,
+            qc=qc, compare_to=compare_to, expect_non_empty=expect_non_empty,
         ),
     )
 

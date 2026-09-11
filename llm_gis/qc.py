@@ -16,6 +16,7 @@ from llm_gis.common import crs_status, is_remote, parse_crs, reproject_bbox, utc
 from llm_gis.errors import CRS_MISSING, CRS_SUSPICIOUS, INPUT_NOT_FOUND, GisError
 
 SEVERITY = "warning"
+EMPTY_RESULT_UNEXPECTED = "EMPTY_RESULT_UNEXPECTED"
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,7 @@ def check_geographic_crs_for_metric_operation(metrics: dict, context: QcContext)
 
 
 def check_empty_result_unexpected(metrics: dict, context: QcContext) -> dict:
-    code = "EMPTY_RESULT_UNEXPECTED"
+    code = EMPTY_RESULT_UNEXPECTED
     vector = metrics.get("vector")
     if vector is None:
         return _result(code, "not_evaluated", "Not a vector dataset")
