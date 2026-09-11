@@ -300,9 +300,10 @@ def _parse_bbox(bbox: str | None) -> list[float] | None:
 @handle_errors
 def catalog_collections_cmd(
     catalog: str = typer.Argument(..., help="Catalogue alias or URL"),
+    latest_only: bool = typer.Option(False, "--latest-only", help="Skip all but the newest release (traversal mode only)"),
 ) -> None:
     """Collections a STAC catalogue offers. Never downloads an asset."""
-    _emit("catalog-collections", catalog_ops.list_collections(catalog))
+    _emit("catalog-collections", catalog_ops.list_collections(catalog, latest_only=latest_only))
 
 
 @app.command("catalog-search")

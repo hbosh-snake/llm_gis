@@ -160,6 +160,22 @@ def _links(document: dict, rel: str) -> list[str]:
     return [l["href"] for l in document.get("links") or [] if l.get("rel") == rel and l.get("href")]
 
 
+def _child_links(document: dict, latest_only: bool) -> list[str]:
+    """Child links to descend into, honouring the STAC 'latest' link flag.
+
+    Overture's release catalogue marks exactly one 'child' link per document
+    as {"latest": true}. When latest_only is asked for and a document carries
+    that marker, only that child is walked; a document with no marked child
+    (most STAC catalogues) falls back to walking every child, unaffected.
+    """
+    links = document.get("links") or []
+    if latest_only:
+        marked = [l["href"] for l in links if l.get("rel") == "child" and l.get("latest") and l.get("href")]
+        if marked:
+            return marked
+    return _links(document, "child")
+
+
 def traverse(
     root_url: str,
     *,
@@ -168,11 +184,16 @@ def traverse(
     datetime_spec: str | None,
     limit: int,
     fetch=None,
+    latest_only: bool = False,
 ) -> dict:
     """Walk a static catalogue under a request budget, filtering client-side.
 
     'fetch' is resolved at call time, not bound as a default, so a test can
     replace fetch_json on the module and have the walk actually use it.
+
+    latest_only skips every child a document does not mark {"latest": true}
+    (see _child_links) -- for Overture this means only the newest release is
+    walked, cutting the request count roughly in proportion to release count.
     """
     fetch = fetch or fetch_json
     budget = Budget(MAX_REQUESTS)
@@ -197,7 +218,7 @@ def traverse(
             _collect_items(document, bbox)
             return
 
-        for child in _links(document, "child"):
+        for child in _child_links(document, latest_only):
             walk(child, depth + 1)
 
     def _collect_items(document: dict, box: list[float] | None) -> None:

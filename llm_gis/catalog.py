@@ -199,8 +199,14 @@ def _mode_for(endpoint: str) -> str:
     return stac_fetch.detect_mode(stac_fetch.fetch_json(endpoint))
 
 
-def list_collections(catalog: str) -> dict:
-    """Collections a catalogue offers, in whichever mode it supports."""
+def list_collections(catalog: str, *, latest_only: bool = False) -> dict:
+    """Collections a catalogue offers, in whichever mode it supports.
+
+    latest_only, in traversal mode, skips every release but the newest (see
+    stac_fetch.traverse). Overture's static catalogue nests every collection
+    under a per-release child of the root, so walking every release re-visits
+    the same collections once per release; latest_only avoids that.
+    """
     endpoint = resolve_endpoint(catalog)
     mode = _mode_for(endpoint)
     if mode == "search":
@@ -209,7 +215,7 @@ def list_collections(catalog: str) -> dict:
     else:
         walked = stac_fetch.traverse(
             endpoint, collection=None, bbox=None, datetime_spec=None, limit=0,
-            fetch=stac_fetch.fetch_json,
+            fetch=stac_fetch.fetch_json, latest_only=latest_only,
         )
         raw, truncated, used = walked["collections"], walked["truncated"], walked["requests_used"]
     return {

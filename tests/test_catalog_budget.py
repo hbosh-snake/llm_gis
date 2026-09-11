@@ -133,6 +133,51 @@ def test_a_collection_without_sub_extents_still_works_just_more_expensively():
     assert {i["id"] for i in result["items"]} == {"00000", "00001"}
 
 
+def test_latest_only_walks_just_the_marked_release():
+    """Mirrors Overture's real root: two release children, one {"latest": true}."""
+    documents = {
+        ROOT: {
+            "type": "Catalog",
+            "id": "root",
+            "links": [
+                {"rel": "child", "href": "https://fake.invalid/2026-08-19.0/catalog.json", "latest": True},
+                {"rel": "child", "href": "https://fake.invalid/2026-07-22.0/catalog.json"},
+            ],
+        },
+        "https://fake.invalid/2026-08-19.0/catalog.json": {
+            "type": "Catalog", "id": "2026-08-19.0", "links": [{"rel": "child", "href": COLLECTION}],
+        },
+        "https://fake.invalid/2026-07-22.0/catalog.json": {
+            "type": "Catalog", "id": "2026-07-22.0",
+            "links": [{"rel": "child", "href": "https://fake.invalid/old-collection.json"}],
+        },
+        COLLECTION: {
+            "type": "Collection", "id": "building",
+            "extent": {"spatial": {"bbox": [[-180.0, -90.0, 180.0, 90.0]]}},
+            "links": [{"rel": "self", "href": COLLECTION}],
+        },
+        "https://fake.invalid/old-collection.json": {
+            "type": "Collection", "id": "building",
+            "extent": {"spatial": {"bbox": [[-180.0, -90.0, 180.0, 90.0]]}},
+            "links": [{"rel": "self", "href": "https://fake.invalid/old-collection.json"}],
+        },
+    }
+    fetcher = FakeFetcher(documents)
+    result = traverse(
+        ROOT, collection=None, bbox=None, datetime_spec=None, limit=0, fetch=fetcher, latest_only=True
+    )
+    assert [c["id"] for c in result["collections"]] == ["building"]
+    assert "https://fake.invalid/2026-07-22.0/catalog.json" not in fetcher.urls
+
+
+def test_latest_only_falls_back_to_every_child_when_none_is_marked():
+    fetcher = FakeFetcher(_catalogue(2, None))
+    result = traverse(
+        ROOT, collection=None, bbox=None, datetime_spec=None, limit=100, fetch=fetcher, latest_only=True
+    )
+    assert [i["id"] for i in result["items"]] == ["00000", "00001"]
+
+
 def test_a_cycle_in_child_links_terminates():
     documents = {
         ROOT: {"type": "Catalog", "id": "a", "links": [{"rel": "child", "href": "https://fake.invalid/b.json"}]},

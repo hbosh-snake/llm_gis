@@ -23,6 +23,14 @@ def test_overture_is_a_static_catalogue_and_says_so():
 
 
 @pytest.mark.live
+def test_overture_latest_only_walks_fewer_requests_and_the_same_collections():
+    every_release = list_collections("overture")
+    newest_release = list_collections("overture", latest_only=True)
+    assert {c["id"] for c in newest_release["collections"]} == {c["id"] for c in every_release["collections"]}
+    assert newest_release["requests_used"] < every_release["requests_used"]
+
+
+@pytest.mark.live
 def test_cdse_declares_item_search():
     result = search_items("cdse", collection="sentinel-2-l2a", bbox=OSLO, limit=3)
     assert result["mode"] == "search"

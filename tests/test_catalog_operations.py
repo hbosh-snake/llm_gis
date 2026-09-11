@@ -53,6 +53,19 @@ def test_search_output_carries_the_self_href_the_item_commands_need(static_catal
     assert result["items"][0]["self"].endswith("/00000/00000.json")
 
 
+def test_list_collections_passes_latest_only_through_to_traversal(monkeypatch):
+    seen = {}
+
+    def fake_traverse(*args, **kwargs):
+        seen["latest_only"] = kwargs.get("latest_only")
+        return {"collections": [], "items": [], "requests_used": 1, "truncated": False}
+
+    monkeypatch.setattr(catalog.stac_fetch, "fetch_json", lambda url: {"conformsTo": []})
+    monkeypatch.setattr(catalog.stac_fetch, "traverse", fake_traverse)
+    catalog.list_collections(ROOT, latest_only=True)
+    assert seen["latest_only"] is True
+
+
 def test_listing_collections_over_a_static_catalogue_walks(static_catalogue):
     result = catalog.list_collections(ROOT)
     assert result["mode"] == "traversal"
