@@ -182,10 +182,13 @@ def inspect_dataset(source: str | Path, ingest_id: str | None = None) -> dict[st
     if not vector_out and not raster_out:
         if is_remote(source) and remote_failure is not None:
             raise remote_read_error(source, remote_failure)
+        hint = "Confirm the file is a GDAL-readable vector or raster; for a sidecar format ensure companion files are present"
+        if str(source).lower().endswith(".parquet"):
+            hint = "Parquet files cannot be ingested directly. If this is the output of duck-query, regenerate it with --format geopackage instead"
         raise GisError(
             UNSUPPORTED_FORMAT,
             f"Neither ogrinfo nor gdalinfo could read {source}",
-            "Confirm the file is a GDAL-readable vector or raster; for a sidecar format ensure companion files are present",
+            hint,
         )
 
     if vector_out:

@@ -12,6 +12,7 @@ Nothing here measures. Metrics come from qc_collect, the same collectors bin/qc 
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -180,7 +181,8 @@ def render(
 
     stem = Path(output) if output else work_root() / "preview" / Path(dataset).stem
     stem.parent.mkdir(parents=True, exist_ok=True)
-    work_dir = stem.parent
+    # Use a temporary directory for all GDAL intermediates; keep only the final PNG and sidecar
+    work_dir = Path(tempfile.mkdtemp(prefix="preview_", dir=work_root() / "tmp"))
     name = stem.name
 
     scale = {"min": None, "max": None}
@@ -228,5 +230,9 @@ def render(
     }
     sidecar = stem.with_suffix(".preview.json")
     sidecar.write_text(json.dumps(sidecar_payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    # Clean up temporary GDAL intermediates
+    import shutil
+    shutil.rmtree(work_dir, ignore_errors=True)
 
     return {"png": str(png), "sidecar": str(sidecar), "kind": kind, **sidecar_payload}
