@@ -287,30 +287,32 @@ statistics, derived output — without downloading the full raster.
 
 ## 5. Feature classification against the original
 
-Status as of this document. To be updated as phases land.
+Status as of 2026-09-11, after an end-to-end run of Examples 1-4 confirmed the merged
+phases hold together (`docs/reports/2026-09-11_examples-1-4-verification.md`). Dates below
+are each phase's merge commit date on `main`.
 
 | Original section | Classification | Note |
 |---|---|---|
-| O1 Asset abstraction | DEFERRED to Phase 5 | Extracted from working code, not designed up front (D1). |
-| O2 STAC | PLANNED Phase 4 | Generic `pystac-client`, fixtures over live calls. |
-| O3 DuckDB + spatial | PLANNED Phase 2 | Promoted to first capability phase (D2). |
-| O4 Execution planner | PLANNED Phase 6 | Needs two live engines first (D5). |
-| O5 Portolan | DEFERRED | Revisit after Phase 4 proves generic STAC against a Portolan catalogue. No Portolan-specific code until a generic path demonstrably fails. |
-| O6 COG-first raster | DONE Phase 7 | GDAL reads a remote COG through `/vsicurl`; PostGIS raster retained, no longer the default sink (D8). |
+| O1 Asset abstraction | MERGED, Phase 5 (2026-09-08) | Extracted from working code, not designed up front (D1). |
+| O2 STAC | MERGED, Phase 4 (2026-09-07) | Generic `pystac-client`, fixtures over live calls; also field-tested live (`docs/reports/2026-09-07_phase4-stac-field-test.md`). |
+| O3 DuckDB + spatial | MERGED, Phase 2 (2026-09-07) | Promoted to first capability phase (D2). |
+| O4 Execution planner | MERGED, Phase 6 (2026-09-10) | Needs two live engines first (D5); field-tested (`docs/reports/2026-09-10_phase6_field_test.md`). |
+| O5 Portolan | DEFERRED | Revisit after Phase 4 proves generic STAC against a Portolan catalogue. No Portolan-specific code until a generic path demonstrably fails. Still blocked on a concrete Portolan catalogue endpoint — no alias configured and Example 5 could not be run for want of one. |
+| O6 COG-first raster | MERGED, Phase 7 (2026-09-11) | GDAL reads a remote COG through `/vsicurl`; PostGIS raster retained, no longer the default sink (D8). |
 | O7 OGC / ArcGIS / WFS adapters | DEFERRED | Large surface, no current job requires it (D7). Revisit on demand, one protocol at a time. |
-| O8 Preview | DONE Phase 7 | `bin/preview` renders a deterministic PNG with AOI outline and graticule; library rendering only, no server. |
-| O9 QC | PLANNED Phase 3 | Promoted; extends existing `crs_status`. |
-| O10 Operation plans | PLANNED Phase 6 | Serial plan, no DAG engine. |
-| O11 Provenance | PARTIAL, Phase 5 | `analysis.json` manifest follows the asset model; ingest ids and hashes already exist. |
-| O12 Cache | PARTIAL, Phase 2 | Filesystem cache under `/data/work/cache/`, keyed on source URI plus query. Full inspect/clear commands deferred. |
-| O13 Agent-oriented CLI | PLANNED Phase 1 | Promoted; constrains all later commands. |
+| O8 Preview | MERGED, Phase 7 (2026-09-11) | `bin/preview` renders a deterministic PNG with AOI outline and graticule; library rendering only, no server. Flagged gap: `--output <stem>` writes its GDAL intermediates (`.red.tif`, `.green.tif`, `.blue.tif`, `.rgb.vrt`, `.data.geojson`, `.graticule.geojson`, `.png.aux.xml`) next to the stem rather than confining them to a work directory, so an `--output` under `data/outgoing/` needs manual cleanup to leave only the PNG and its `.preview.json` sidecar. |
+| O9 QC | MERGED, Phase 3 (2026-09-07) | Promoted; extends existing `crs_status`; field-tested (`docs/reports/2026-09-07_phase3-qc-field-test.md`). |
+| O10 Operation plans | MERGED, Phase 6 (2026-09-10) | Serial plan, no DAG engine. |
+| O11 Provenance | PARTIAL, Phase 5 (2026-09-08) | `analysis.json` manifest follows the asset model; ingest ids and hashes already exist. |
+| O12 Cache | PARTIAL, Phase 2 (2026-09-07) | Filesystem cache under `/data/work/cache/`, keyed on source URI plus query. Full inspect/clear commands deferred. |
+| O13 Agent-oriented CLI | MERGED, Phase 1 (2026-09-05) | Promoted; constrains all later commands. |
 | O14 Capability registry | REJECTED for now | Two engines do not need a registry (D4). |
-| O15 Modern output formats | PARTIAL, Phase 2 | GeoParquet added alongside GPKG/GeoJSON; PMTiles/COPC/GeoZarr deferred. |
+| O15 Modern output formats | PARTIAL, Phase 2 (2026-09-07) | GeoParquet added alongside GPKG/GeoJSON; PMTiles/COPC/GeoZarr deferred. |
 | O16 OGC API Processes | DEFERRED | Explicitly last in the original; unchanged. |
 | O17 MCP interface | DEFERRED | Revisit once the execution model is stable. The CLI stays primary. |
-| O20 Demonstration workflows | PLANNED | Example 1 is Phase 0's live test; Example 2 is Phase 4's done-when; Example 3 is Phase 7's. Examples 4 (multi-dataset) and 5 (Portolan) follow once their inputs exist. |
-| O21 Testing | PLANNED Phase 0 onward | Fixture-based by default; `tests/live/` excluded from the default run so an offline catalogue never fails the suite. |
-| O22 Documentation | PLANNED, per phase | Each phase updates `README.md`, `AGENTS.md` and `.claude/skills/hot-start/SKILL.md` with the commands it adds and the engine-choice guidance (GDAL / DuckDB / PostGIS / Rasterio) as defaults rather than rules. Documentation ships with the phase, not after it. |
+| O20 Demonstration workflows | Examples 1-4 MERGED/VERIFIED; Example 5 DEFERRED | Example 1 (local GPKG round trip), Example 2 (Overture STAC to GeoParquet, DuckDB bbox filter, no ingestion) and Example 3 (STAC to COG, remote inspect, AOI window read, statistics) all ran clean end to end on 2026-09-11, alongside a first live run of Example 4 (two remote Overture themes, DuckDB subset via `--format geopackage`, PostGIS reprojection and spatial join, QC, preview, GeoPackage export). Example 5 (Portolan) is blocked on O5. See `docs/reports/2026-09-11_examples-1-4-verification.md`. |
+| O21 Testing | ACTIVE, Phase 0 onward | 29 test modules, 6 of them under `tests/live/` and excluded from the default run so an offline catalogue never fails the suite. |
+| O22 Documentation | ACTIVE, per phase | Each phase updates `README.md`, `AGENTS.md` and `.claude/skills/hot-start/SKILL.md` with the commands it adds and the engine-choice guidance (GDAL / DuckDB / PostGIS / Rasterio) as defaults rather than rules. Documentation ships with the phase, not after it. |
 | O25 Decision log | ACTIVE | This document's "Departures" section (D1-D9) is the decision log; new decisions append there with their rationale. |
 
 ---
