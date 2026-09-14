@@ -62,6 +62,14 @@ def test_rendering_a_vector_writes_a_png(tmp_path):
     assert result["kind"] == "vector"
 
 
+def test_output_directory_holds_only_the_png_and_sidecar(tmp_path):
+    outgoing = tmp_path / "outgoing"
+    preview.render(str(FIXTURES / "scene.tif"), output=str(outgoing / "scene"))
+
+    produced = {p.name for p in outgoing.iterdir()}
+    assert produced == {"scene.png", "scene.preview.json"}
+
+
 def test_a_disjoint_aoi_is_reported_in_the_sidecar(tmp_path):
     """The number the picture is meant to show, so the two can be compared."""
     result = preview.render(
