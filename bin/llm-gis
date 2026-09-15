@@ -355,7 +355,8 @@ def main(args: list[str] | None = None) -> int:
         normalized = normalize_outputs(raw_args, cwd)
         outputs = output_paths(normalized, cwd)
         _validate_outputs(outputs)
-        work_dir = repo / "data" / "work" / "jobs" / uuid.uuid4().hex
+        jobs_root = Path(os.environ.get("LLM_GIS_JOBS_ROOT", repo / "data" / "work" / "jobs"))
+        work_dir = jobs_root.resolve() / uuid.uuid4().hex
         mounts = mounts_for(normalized, cwd, outputs, work_dir)
         _create_directories(outputs, work_dir)
         argv = docker_argv(repo, cwd, normalized, mounts, work_dir)

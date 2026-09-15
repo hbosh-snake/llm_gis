@@ -91,6 +91,9 @@ subfolder is removed on exit. Staging, reports and logs persist so later calls
 can use them. Full job cleanup is deferred: large staged sources consume disk
 until deliberately removed after their workflow is no longer needed.
 
+For host launcher tests or isolated automation, set `LLM_GIS_JOBS_ROOT` to an
+alternate writable directory. The default remains `<repo>/data/work/jobs`.
+
 Generated ingest IDs have a six-hex random suffix. Explicit reuse of ingest IDs
 is not locked. Concurrent jobs should use generated IDs and different output
 names; races writing the identical output destination are not supported.

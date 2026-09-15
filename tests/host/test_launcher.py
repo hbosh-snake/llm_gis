@@ -64,6 +64,7 @@ raise SystemExit(int(os.environ.get("FAKE_DOCKER_EXIT", "0")))
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["FAKE_DOCKER_RECORD"] = str(record)
+    env["LLM_GIS_JOBS_ROOT"] = str(tmp_path / "jobs")
     return FakeDocker(env=env, record=record)
 
 
@@ -496,6 +497,20 @@ def test_repeated_invocations_use_different_absolute_job_roots(
     assert first.returncode == second.returncode == 0
     assert first_job.is_absolute() and second_job.is_absolute()
     assert first_job != second_job
+
+
+def test_jobs_root_can_be_overridden(fake_docker: FakeDocker, tmp_path: Path) -> None:
+    cwd = tmp_path / "client"
+    cwd.mkdir()
+    jobs_root = tmp_path / "jobs root"
+
+    result = run_launcher(
+        fake_docker, cwd, "doctor", env_updates={"LLM_GIS_JOBS_ROOT": str(jobs_root)}
+    )
+
+    assert result.returncode == 0, result.stderr
+    job = Path(container_env(recorded(fake_docker)["argv"])["LLM_GIS_WORK_ROOT"])
+    assert job.parent == jobs_root
 
 
 def test_a_retained_staged_path_can_be_a_later_read_only_source(
