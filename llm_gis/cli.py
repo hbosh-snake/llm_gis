@@ -22,6 +22,7 @@ from llm_gis.list_ingestions import list_ingestions
 from llm_gis.planner import plan as plan_operation
 from llm_gis.qc import QcContext, qc_report, reference_for
 from llm_gis.query import query as duck_query
+from llm_gis.query_sql import query_sql
 from llm_gis.preview import render as preview_render
 from llm_gis.raster import window as raster_window
 from llm_gis.run_sql import run_sql_file
@@ -155,6 +156,24 @@ def run_sql_cmd(
     statement_timeout: str = typer.Option("5min", help="Postgres statement timeout"),
 ) -> None:
     _emit("run-sql", run_sql_file(sql_path, ingest_id=ingest_id, statement_timeout=statement_timeout))
+
+
+@app.command("query-sql")
+@handle_errors
+def query_sql_cmd(
+    statement: str | None = typer.Option(None, "--sql"),
+    sql_file: Path | None = typer.Option(None, "--sql-file"),
+    ingest_id: str | None = typer.Option(None, "--ingest-id"),
+    statement_timeout: str = typer.Option("5min", "--statement-timeout"),
+    max_rows: int = typer.Option(100, "--max-rows"),
+    max_bytes: int = typer.Option(262144, "--max-bytes"),
+    output: Path | None = typer.Option(None, "--output"),
+    output_format: str = typer.Option("json", "--format"),
+) -> None:
+    _emit("query-sql", query_sql(statement=statement, sql_file=sql_file,
+                                  ingest_id=ingest_id, statement_timeout=statement_timeout,
+                                  max_rows=max_rows, max_bytes=max_bytes,
+                                  output=output, output_format=output_format))
 
 
 @app.command("export")

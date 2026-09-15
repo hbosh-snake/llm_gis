@@ -24,8 +24,61 @@
     "analysis": "analysis_<ingest_id>",
     "metadata": "meta.ingestions"
   },
-  "ingest_id_format": "YYYYMMDDHHMMSS_<first10ofSHA256>",
+  "ingest_id_format": "YYYYMMDDHHMMSS_<first10ofSHA256>_<random6hex>",
+  "global_launcher": {"entrypoint": "bin/llm-gis", "installed": "~/.local/bin/llm-gis", "path_semantics": "host paths relative to caller cwd; output operands absolute", "default_output_directory": "./results", "install": "uv run --script scripts/install-global.py", "source_roots_env": "LLM_GIS_SOURCE_ROOTS (os.pathsep-separated)", "work_root": "<repo>/data/work/jobs/<uuid> (same-path bind mount)"},
   "commands": [
+    {
+      "name": "query-sql",
+      "entrypoint": "bin/query-sql",
+      "description": "Read-only SELECT/VALUES results with bounded row preview and optional complete JSON/CSV export.",
+      "args": [
+        {
+          "name": "--sql",
+          "required": false,
+          "description": "SQL text; exactly one of --sql / --sql-file"
+        },
+        {
+          "name": "--sql-file",
+          "required": false,
+          "description": "SQL file; host path through global launcher"
+        },
+        {
+          "name": "--ingest-id",
+          "required": false,
+          "description": "Optional search_path context"
+        },
+        {
+          "name": "--statement-timeout",
+          "required": false,
+          "default": "5min"
+        },
+        {
+          "name": "--max-rows",
+          "required": false,
+          "default": 100
+        },
+        {
+          "name": "--max-bytes",
+          "required": false,
+          "default": 262144
+        },
+        {
+          "name": "--output",
+          "required": false,
+          "description": "Full export path; existing files refused"
+        },
+        {
+          "name": "--format",
+          "required": false,
+          "default": "json",
+          "choices": [
+            "json",
+            "csv"
+          ]
+        }
+      ],
+      "example": "llm-gis query-sql --sql 'SELECT count(*) FROM raw_ID.parcels'"
+    },
     {
       "name": "doctor",
       "entrypoint": "bin/doctor",

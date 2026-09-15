@@ -6,6 +6,30 @@ Headless geospatial analysis backend controlled through non-interactive CLI comm
 
 ---
 
+## Operator Mode
+
+The human describes what they need in plain terms; the agent handles inspection,
+CRS resolution, command selection, SQL and verification. Do not ask the human to
+run CLI commands. Explain meaningful analytical choices and results; keep ingest
+IDs and schema names internal unless requested. Inspect uncertain data first.
+
+## Global launcher
+
+For geodata tasks started outside the repository, use the installed `llm-gis`
+launcher with the caller's folder as the working directory and **host paths**.
+Read `docs/llm/GLOBAL_WORKFLOW.md` for the full workflow. The launcher chooses the
+Compose project, mounts inputs read-only, and writes requested artifacts directly
+to the selected host folder (default `./results/`). Do not cd into the repository
+for global commands. Legacy `bin/<command>` wrappers still use container paths.
+
+Use `query-sql --sql "SELECT ..."` or `--sql-file <host-path>` for actual in-chat
+PostGIS answers. It returns bounded rows and supports complete JSON/CSV exports;
+`run-sql` remains the mutating analysis-file command. Preserve metric units,
+source/layer choices, QC warnings and truncation in the answer.
+
+Run host Python through `uv run` (standalone launchers/installers use `uv run
+--script`). Host Docker tests live in `tests/host/` and are excluded by `bin/test`.
+
 ## Architecture
 
 Three layers:
@@ -73,7 +97,7 @@ route: pixel statistics by area go through `bin/raster-window --zones`, not thro
    → check crs_status: "ok" / "missing" / "suspicious"
 
 2. bin/ingest-vector /data/incoming/<file> --table <name> --dst-crs EPSG:3035
-   → note "ingest_id" from output (format: YYYYMMDDHHMMSS_<first10sha256>)
+   → note "ingest_id" from output (format: YYYYMMDDHHMMSS_<first10sha256>_<random6hex>)
 
 3. bin/describe-table raw_<ingest_id>.<name>
    → read exact column names before writing SQL
@@ -118,7 +142,7 @@ A check `result` of `not_evaluated` means it was skipped for want of context, no
 
 - **Column names are always lowercase.** `ogr2ogr` lowercases on load. Never quote mixed-case names in SQL.
 - **Geometry column is `geom`, primary key is `fid`.** These are set at ingest. Use them in all SQL.
-- **Analysis schema is NOT auto-created.** Your SQL must begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`
+- **`run-sql` creates its analysis schema.** For self-contained SQL, still begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`
 - **CRS must be resolved before ingesting.** If `crs_status` is `missing` or `suspicious`, add `--src-crs EPSG:XXXX`.
 - **Use a projected CRS for metric work.** Buffer/area/distance need metric CRS. Use EPSG:3035 (Europe) or appropriate UTM.
 
@@ -132,7 +156,7 @@ A check `result` of `not_evaluated` means it was skipped for want of context, no
 | `data/archive/` | — | post-workflow archive for processed source files |
 | `./` (repo root) | `/workspace` | read/write |
 
-**Post-workflow:** Results go in `data/outgoing/YYYY-MM-DD_<project-name>/`. After confirmation, source files move from `data/incoming/` to `data/archive/`.
+**Post-workflow:** Legacy repository workflows put results in `data/outgoing/YYYY-MM-DD_<project-name>/`. Global workflows use the requested host folder or `./results/`. Only repository incoming sources move to `data/archive/`, after confirmation; external sources stay in place.
 
 ## Database
 
@@ -159,6 +183,7 @@ A check `result` of `not_evaluated` means it was skipped for want of context, no
 Prepends before your SQL:
 ```sql
 SET statement_timeout = '5min';
+CREATE SCHEMA IF NOT EXISTS analysis_<id>;
 SET search_path TO analysis_<id>, raw_<id>, public;
 ```
 Your SQL can reference raw tables without schema qualification. Logs go to `/data/work/logs/<id>/run-sql.log`.
@@ -170,9 +195,9 @@ docker compose up -d --build
 bin/doctor   # verify DB connectivity and tool versions
 ```
 
-## No Tests
+## Tests
 
-No `tests/` directory. `bin/doctor` is the smoke test. Results in `docs/reports/`.
+`bin/test` runs backend pytest checks in Docker, excluding `tests/host`. Use `uv run pytest tests/host` for fake-Docker/installer tests and `uv run pytest tests/host -m live` for host Docker acceptance. `bin/doctor` is the smoke test. Results go in `docs/reports/`.
 
 ## Full Reference
 

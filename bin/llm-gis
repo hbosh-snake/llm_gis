@@ -1,0 +1,434 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
+"""Run llm-gis from any supported host folder using same-path mounts."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import uuid
+
+
+RESERVED_MOUNT_ROOTS = tuple(
+    Path(value)
+    for value in (
+        "/data", "/workspace", "/opt", "/usr", "/etc", "/var",
+        "/proc", "/sys", "/dev", "/root",
+    )
+)
+OUTPUT_OPTION_COMMANDS = {"preview", "raster-window", "duck-query", "query-sql"}
+EXPORT_VALUE_OPTIONS = {"--format", "--table", "--sql", "--compare-to"}
+PREVIEW_VALUE_OPTIONS = {"--aoi", "--output"}
+
+
+class LauncherError(Exception):
+    """An error the launcher can report through the backend JSON contract."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        suggested_action: str,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.suggested_action = suggested_action
+        self.details = details or {}
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": "error",
+            "code": self.code,
+            "message": self.message,
+            "suggested_action": self.suggested_action,
+            "details": self.details,
+        }
+
+
+def _host_absolute(value: str, cwd: Path) -> Path:
+    path = Path(value)
+    if not path.is_absolute():
+        path = cwd / path
+    return Path(os.path.abspath(path))
+
+
+def _option_value(args: list[str], option: str) -> tuple[int, str, bool] | None:
+    """Return index, value, and whether an option uses --name=value syntax."""
+    prefix = option + "="
+    for index, token in enumerate(args):
+        if token == option and index + 1 < len(args):
+            return index + 1, args[index + 1], False
+        if token.startswith(prefix):
+            return index, token[len(prefix):], True
+    return None
+
+
+def _first_positional(
+    args: list[str], value_options: set[str], *, start: int = 1
+) -> tuple[int, str] | None:
+    index = start
+    while index < len(args):
+        token = args[index]
+        option = token.split("=", 1)[0]
+        if option in value_options:
+            index += 1 if "=" in token else 2
+            continue
+        if token.startswith("-"):
+            index += 1
+            continue
+        return index, token
+    return None
+
+
+def _output_operand(args: list[str]) -> tuple[int, str, bool] | None:
+    if not args:
+        return None
+    command = args[0]
+    if command == "export":
+        positional = _first_positional(args, EXPORT_VALUE_OPTIONS)
+        if positional is None:
+            return None
+        index, value = positional
+        return index, value, False
+    if command in OUTPUT_OPTION_COMMANDS:
+        return _option_value(args, "--output")
+    return None
+
+
+def normalize_outputs(args: list[str], cwd: Path) -> list[str]:
+    """Make only known output operands absolute and inject preview's default."""
+    normalized = list(args)
+    if not normalized:
+        return normalized
+    operand = _output_operand(normalized)
+    if operand is None and normalized[0] == "preview":
+        dataset = _first_positional(normalized, PREVIEW_VALUE_OPTIONS)
+        if dataset is not None:
+            stem = Path(dataset[1]).stem
+            normalized.extend(["--output", str(_host_absolute(f"results/{stem}", cwd))])
+        return normalized
+    if operand is None:
+        return normalized
+    index, value, joined = operand
+    absolute = str(_host_absolute(value, cwd))
+    normalized[index] = f"--output={absolute}" if joined else absolute
+    return normalized
+
+
+def output_paths(args: list[str], cwd: Path) -> list[Path]:
+    """Return files the selected backend command will write."""
+    normalized = normalize_outputs(args, cwd)
+    if not normalized:
+        return []
+    operand = _output_operand(normalized)
+    if operand is None:
+        return []
+    path = _host_absolute(operand[1], cwd)
+    if normalized[0] == "preview":
+        return [path.with_suffix(".png"), path.with_suffix(".preview.json")]
+    return [path]
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve(strict=False)
+    except OSError as error:
+        raise LauncherError(
+            "PATH_ERROR",
+            f"Could not resolve path {path}: {error}",
+            "Use a shorter, accessible local path",
+            {"path": str(path)},
+        ) from error
+
+
+def _validate_mount_root(path: Path) -> Path:
+    actual = _resolved(path)
+    home = _resolved(Path.home())
+    refused = actual == Path("/") or actual == home
+    if not refused:
+        refused = any(actual == root or root in actual.parents for root in RESERVED_MOUNT_ROOTS)
+    if refused:
+        raise LauncherError(
+            "MOUNT_REFUSED",
+            f"Refused mount root: {actual}",
+            f"Use a project folder below an allowed root; move it into a subfolder instead of mounting {actual}",
+            {"mount_root": str(actual)},
+        )
+    return actual
+
+
+def _probe_existing_path(value: str, cwd: Path) -> tuple[Path, Path] | None:
+    """Return an existing source and its mount root without changing its token."""
+    if not value or "\n" in value or "\0" in value:
+        return None
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = cwd / candidate
+    try:
+        if not candidate.exists():
+            return None
+        actual = candidate.resolve()
+        root = actual if actual.is_dir() else actual.parent
+    except OSError:
+        return None
+    return actual, root
+
+
+def _discovered_sources(
+    args: list[str], cwd: Path
+) -> list[tuple[Path, Path]]:
+    operand = _output_operand(args)
+    skipped_index = operand[0] if operand is not None else None
+    sources: list[tuple[Path, Path]] = []
+    for index, token in enumerate(args[1:], start=1):
+        if index == skipped_index:
+            continue
+        value = token
+        if token.startswith("-") and "=" in token:
+            value = token.split("=", 1)[1]
+        elif token.startswith("-"):
+            continue
+        probed = _probe_existing_path(value, cwd)
+        if probed is not None and probed not in sources:
+            sources.append(probed)
+    return sources
+
+
+def mounts_for(
+    args: list[str], cwd: Path, outputs: list[Path], work_dir: Path
+) -> list[tuple[Path, bool]]:
+    """Build validated same-path mounts as (host path, writable)."""
+    caller_root = _validate_mount_root(cwd)
+    source_roots: list[Path] = [caller_root]
+    source_paths: list[Path] = []
+    for source, root in _discovered_sources(args, cwd):
+        source_paths.append(source)
+        actual_root = _validate_mount_root(root)
+        if actual_root not in source_roots:
+            source_roots.append(actual_root)
+
+    output_roots: list[Path] = []
+    for output in outputs:
+        actual_root = _validate_mount_root(output.parent)
+        if actual_root not in output_roots:
+            output_roots.append(actual_root)
+
+    for writable in output_roots:
+        conflict = writable in source_roots
+        conflict = conflict or any(writable == source or writable in source.parents for source in source_paths)
+        conflict = conflict or any(writable in source_root.parents for source_root in source_roots)
+        if conflict:
+            raise LauncherError(
+                "MOUNT_CONFLICT",
+                f"Writable output mount {writable} overlaps a read-only source mount",
+                "Choose a new subfolder that contains no source files, such as ./results",
+                {"mount_root": str(writable)},
+            )
+
+    actual_work_dir = _validate_mount_root(work_dir)
+    mounts: list[tuple[Path, bool]] = []
+    for root in source_roots:
+        item = (root, False)
+        if item not in mounts:
+            mounts.append(item)
+    for root in output_roots:
+        item = (root, True)
+        if item not in mounts:
+            mounts.append(item)
+    work_item = (actual_work_dir, True)
+    if work_item not in mounts:
+        mounts.append(work_item)
+    return mounts
+
+
+def docker_argv(
+    repo: Path,
+    cwd: Path,
+    args: list[str],
+    mounts: list[tuple[Path, bool]],
+    work_dir: Path,
+) -> list[str]:
+    """Construct Compose argv without shell parsing."""
+    command = [
+        "docker", "compose", "--progress", "quiet",
+        "-f", str(repo / "docker-compose.yml"),
+        "--project-directory", str(repo),
+        "run", "--rm",
+    ]
+    for path, writable in mounts:
+        mode = "rw" if writable else "ro"
+        command.extend(["--volume", f"{path}:{path}:{mode}"])
+    source_roots = os.pathsep.join(str(path) for path, writable in mounts if not writable)
+    command.extend(
+        [
+            "--workdir", str(cwd),
+            "-e", f"LLM_GIS_WORK_ROOT={work_dir}",
+            "-e", f"TMPDIR={work_dir / 'tmp'}",
+            "-e", f"LLM_GIS_SOURCE_ROOTS={source_roots}",
+            "agent", "uv", "run", "--project", "/workspace", "--quiet", "llm-gis",
+            *args,
+        ]
+    )
+    return command
+
+
+def _validate_outputs(outputs: list[Path]) -> None:
+    for output in outputs:
+        try:
+            exists = output.exists()
+        except OSError as error:
+            raise LauncherError(
+                "PATH_ERROR",
+                f"Could not inspect output {output}: {error}",
+                "Choose an accessible output path",
+                {"path": str(output)},
+            ) from error
+        if exists:
+            raise LauncherError(
+                "OUTPUT_EXISTS",
+                f"Output already exists: {output}",
+                "Choose a new output path; overwrite is not supported in this version",
+                {"path": str(output)},
+            )
+
+
+def _create_directories(outputs: list[Path], work_dir: Path) -> None:
+    try:
+        for parent in dict.fromkeys(output.parent for output in outputs):
+            parent.mkdir(parents=True, exist_ok=True)
+        for name in ("tmp", "logs", "reports", "staging"):
+            (work_dir / name).mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as error:
+        raise LauncherError(
+            "PERMISSION_DENIED",
+            f"Could not create launcher directories: {error}",
+            "Choose a destination you can write to",
+        ) from error
+
+
+def _emit_launcher_error(error: LauncherError) -> None:
+    print(json.dumps(error.to_dict(), sort_keys=True), file=sys.stderr)
+
+
+def _structured_backend_error(text: str) -> bool:
+    try:
+        payload = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(payload, dict) and payload.get("status") == "error"
+
+
+def _cleanup_tmp(work_dir: Path | None) -> None:
+    if work_dir is None:
+        return
+    target = work_dir / "tmp"
+    try:
+        if target.exists():
+            shutil.rmtree(target)
+    except OSError as error:
+        warning = {
+            "status": "warning",
+            "code": "TMP_CLEANUP_FAILED",
+            "message": f"Could not remove invocation tmp directory: {target}",
+            "suggested_action": "Remove this tmp directory manually when it is no longer in use",
+            "details": {"path": str(target), "error": str(error)},
+        }
+        print(json.dumps(warning, sort_keys=True), file=sys.stderr)
+
+
+def main(args: list[str] | None = None) -> int:
+    """Validate paths, run Compose, and preserve the backend JSON boundary."""
+    raw_args = list(sys.argv[1:] if args is None else args)
+    repo = Path(__file__).resolve().parents[1]
+    cwd = Path.cwd().resolve()
+    work_dir: Path | None = None
+    try:
+        normalized = normalize_outputs(raw_args, cwd)
+        outputs = output_paths(normalized, cwd)
+        _validate_outputs(outputs)
+        jobs_root = Path(os.environ.get("LLM_GIS_JOBS_ROOT", repo / "data" / "work" / "jobs"))
+        work_dir = jobs_root.resolve() / uuid.uuid4().hex
+        mounts = mounts_for(normalized, cwd, outputs, work_dir)
+        _create_directories(outputs, work_dir)
+        argv = docker_argv(repo, cwd, normalized, mounts, work_dir)
+        environment = os.environ.copy()
+        environment["LLM_GIS_UID"] = str(os.getuid())
+        environment["LLM_GIS_GID"] = str(os.getgid())
+        try:
+            completed = subprocess.run(
+                argv, cwd=cwd, env=environment, text=True, capture_output=True,
+                check=False,
+            )
+        except FileNotFoundError as error:
+            raise LauncherError(
+                "DOCKER_UNAVAILABLE",
+                "Docker could not be started",
+                "Install Docker with Compose support and ensure docker is on PATH",
+                {"error": str(error)},
+            ) from error
+        (work_dir / "logs" / "docker.stderr.log").write_text(
+            completed.stderr, encoding="utf-8"
+        )
+        if completed.returncode != 0:
+            if _structured_backend_error(completed.stderr):
+                sys.stderr.write(completed.stderr)
+                if completed.stderr and not completed.stderr.endswith("\n"):
+                    sys.stderr.write("\n")
+                return completed.returncode
+            raise LauncherError(
+                "DOCKER_COMMAND_FAILED",
+                f"Docker Compose exited with status {completed.returncode}",
+                "Read the retained Docker stderr log for the underlying diagnostic",
+                {
+                    "returncode": completed.returncode,
+                    "log": str(work_dir / "logs" / "docker.stderr.log"),
+                },
+            )
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError as error:
+            raise LauncherError(
+                "INVALID_DOCKER_OUTPUT",
+                "Docker completed but did not return a JSON object",
+                "Read the retained Docker stderr log and rerun the command",
+                {"stdout": completed.stdout[-2000:]},
+            ) from error
+        if not isinstance(payload, dict):
+            raise LauncherError(
+                "INVALID_DOCKER_OUTPUT",
+                "Docker completed but did not return a JSON object",
+                "Read the retained Docker stderr log and rerun the command",
+                {"stdout": completed.stdout[-2000:]},
+            )
+        sys.stdout.write(completed.stdout)
+        if completed.stdout and not completed.stdout.endswith("\n"):
+            sys.stdout.write("\n")
+        return 0
+    except LauncherError as error:
+        _emit_launcher_error(error)
+        return 1
+    except (OSError, PermissionError) as error:
+        _emit_launcher_error(
+            LauncherError(
+                "LAUNCHER_ERROR",
+                f"Host launcher failed: {error}",
+                "Check local path permissions and Docker availability",
+                {"error": str(error)},
+            )
+        )
+        return 1
+    finally:
+        _cleanup_tmp(work_dir)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

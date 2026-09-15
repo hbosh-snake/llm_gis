@@ -5,9 +5,8 @@ import zipfile
 from pathlib import Path
 
 from llm_gis.common import (
-    ensure_child_path,
+    ensure_source_path,
     ensure_workspace_dirs,
-    incoming_root,
     make_ingest_id,
     sha256_for_path,
     utc_now,
@@ -25,9 +24,9 @@ def stage_input(input_path: Path, ingest_id: str | None = None) -> dict:
         raise GisError(
             INPUT_NOT_FOUND,
             f"Input path does not exist: {input_path}",
-            "Check the path and that it is under data/incoming",
+            "Check the host path and that it is under the configured source roots",
         )
-    ensure_child_path(input_path, incoming_root())
+    ensure_source_path(input_path)
 
     input_hash = sha256_for_path(input_path)
     resolved_ingest_id = ingest_id or make_ingest_id(input_hash)

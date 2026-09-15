@@ -7,6 +7,24 @@ description: Instant project context for llm-gis - a headless PostGIS+GDAL geosp
 
 You are working on **llm-gis**: a headless geospatial analysis backend. It ingests vector/raster data into PostGIS, runs spatial SQL, and exports results as GeoPackage or GeoJSON. Every operation is a non-interactive CLI command returning JSON on stdout. It runs entirely in Docker.
 
+## Global launcher
+
+For geodata tasks started outside the repository, use the installed `llm-gis`
+launcher with the caller's folder as the working directory and **host paths**.
+Read `docs/llm/GLOBAL_WORKFLOW.md` for the full workflow. The launcher chooses the
+Compose project, mounts inputs read-only, and writes requested artifacts directly
+to the selected host folder (default `./results/`). Do not cd into the repository
+for global commands. Legacy `bin/<command>` wrappers still use container paths.
+
+Use `query-sql --sql "SELECT ..."` or `--sql-file <host-path>` for actual in-chat
+PostGIS answers. It returns bounded rows and supports complete JSON/CSV exports;
+`run-sql` remains the mutating analysis-file command. Preserve metric units,
+source/layer choices, QC warnings and truncation in the answer.
+
+Run host Python through `uv run` (standalone launchers/installers use `uv run
+--script`). Host Docker tests live in `tests/host/` and are excluded by `bin/test`.
+
+
 ## Architecture (3 layers)
 
 1. **Shell wrappers** (`bin/`): each calls `docker compose run --rm agent uv run llm-gis <cmd> "$@"`. This is the only interface.
@@ -140,17 +158,17 @@ measured statistics rather than a per-run guess.
 - **`data/incoming/` is read-only.** Never write files there. All produced files (merged, exported, processed) go to `data/outgoing/`.
 - **Column names are always lowercase.** ogr2ogr lowercases on load. Never use mixed-case in SQL.
 - **Geometry column is `geom`, primary key is `fid`.** Set at ingest. Use these in all SQL.
-- **Analysis schema is NOT auto-created.** SQL files MUST begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`
+- **run-sql creates the analysis schema.** Self-contained SQL files should still begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`
 - **CRS must be resolved before ingesting.** If `crs_status` is `missing` or `suspicious`, pass `--src-crs EPSG:XXXX`.
 - **Use a projected CRS for metric work.** Buffers, areas, distances need metric CRS. Use EPSG:3035 (Europe) or appropriate UTM zone.
 
 ## Ingest ID format
 
-`YYYYMMDDHHMMSS_<first10ofSHA256>` (e.g., `20260226174050_d9d4a9f8b2`)
+`YYYYMMDDHHMMSS_<first10ofSHA256>_<random6hex>` (e.g., `20260226174050_d9d4a9f8b2_a1b2c3`)
 
 Schemas derived from it:
-- Raw data: `raw_20260226174050_d9d4a9f8b2`
-- Analysis: `analysis_20260226174050_d9d4a9f8b2`
+- Raw data: `raw_20260226174050_d9d4a9f8b2_a1b2c3`
+- Analysis: `analysis_20260226174050_d9d4a9f8b2_a1b2c3`
 
 ## Data paths
 

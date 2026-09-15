@@ -209,7 +209,11 @@ def render(
         "gdalbuildvrt", "-q", "-separate", str(stacked), str(red), str(green), str(blue),
     ])
     png = stem.with_suffix(".png")
-    run_command(["gdal_translate", "-q", "-of", "PNG", str(stacked), str(png)])
+    run_command([
+        "gdal_translate", "-q", "-of", "PNG",
+        "--config", "GDAL_PAM_ENABLED", "NO",
+        str(stacked), str(png),
+    ])
 
     sidecar_payload = {
         "dataset": {"uri": dataset, "kind": kind},
