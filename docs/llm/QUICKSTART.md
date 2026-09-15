@@ -3,6 +3,24 @@ name: llm-gis
 description: Headless PostGIS + GDAL backend for geospatial ingestion and analysis. Use when you need to load, analyze, or export spatial data (vector or raster) in a containerized environment.
 ---
 
+## Global launcher
+
+For geodata tasks started outside the repository, use the installed `llm-gis`
+launcher with the caller's folder as the working directory and **host paths**.
+Read `docs/llm/GLOBAL_WORKFLOW.md` for the full workflow. The launcher chooses the
+Compose project, mounts inputs read-only, and writes requested artifacts directly
+to the selected host folder (default `./results/`). Do not cd into the repository
+for global commands. Legacy `bin/<command>` wrappers still use container paths.
+
+Use `query-sql --sql "SELECT ..."` or `--sql-file <host-path>` for actual in-chat
+PostGIS answers. It returns bounded rows and supports complete JSON/CSV exports;
+`run-sql` remains the mutating analysis-file command. Preserve metric units,
+source/layer choices, QC warnings and truncation in the answer.
+
+Run host Python through `uv run` (standalone launchers/installers use `uv run
+--script`). Host Docker tests live in `tests/host/` and are excluded by `bin/test`.
+
+
 ## Overview
 
 This backend lets you ingest vector and raster datasets into PostGIS, run spatial SQL analysis, and export results as GeoPackage or GeoJSON. Every operation is a non-interactive CLI command that returns JSON on stdout.
@@ -25,7 +43,7 @@ All commands are wrappers in `bin/`. They run inside the `agent` Docker containe
 
 - **Column names are lowercase.** `ogr2ogr` lowercases all attribute names. `Name` → `name`, `OBJECTID` → `objectid`. Never quote mixed-case names in SQL.
 - **Geometry column is `geom`, primary key is `fid`.** These are set at ingest time. Use them in all SQL.
-- **The analysis schema is NOT auto-created.** `run-sql` sets `search_path` but does not create the schema. Your SQL file must start with:
+- **`run-sql` creates the analysis schema** and sets `search_path`. For self-contained SQL, retain:
   ```sql
   CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;
   ```
@@ -101,11 +119,11 @@ nothing.
 
 ## Ingest ID format
 
-`YYYYMMDDHHMMSS_<first10ofSHA256>` — e.g. `20260226174050_d9d4a9f8b2`
+`YYYYMMDDHHMMSS_<first10ofSHA256>_<random6hex>` — e.g. `20260226174050_d9d4a9f8b2_a1b2c3`
 
 Schema names derived from it:
-- raw data: `raw_20260226174050_d9d4a9f8b2`
-- analysis: `analysis_20260226174050_d9d4a9f8b2`
+- raw data: `raw_20260226174050_d9d4a9f8b2_a1b2c3`
+- analysis: `analysis_20260226174050_d9d4a9f8b2_a1b2c3`
 
 ## Full reference
 

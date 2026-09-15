@@ -14,6 +14,23 @@ This project is for:
 
 This project is not a web map, a desktop GIS, or a notebook environment.
 
+## Use from another folder
+
+On Linux with local Docker and uv, install the host launcher and global skills:
+
+```bash
+uv run --script scripts/install-global.py --check
+# Review the proposed changes before replacing existing personal skills.
+uv run --script scripts/install-global.py --replace
+```
+
+Start Codex or Claude in your data folder and ask an analytical question. The
+skill uses the global launcher, returns query values in chat, and saves requested
+artifacts in your chosen folder (default `./results/`). Existing files are refused.
+The CLI equivalent is `~/.local/bin/llm-gis inspect parcels.gpkg` from that folder.
+See [the global workflow](docs/llm/GLOBAL_WORKFLOW.md) for path restrictions,
+query limits and retained job files. Legacy repository wrappers remain available.
+
 ## Architecture
 
 | Layer | Tool | Role |
@@ -33,8 +50,9 @@ whether DuckDB or PostGIS should run it — see
 - Docker Compose v2
 - Bash (Linux, macOS, or WSL on Windows)
 
-Docker provides PostgreSQL, PostGIS, GDAL, and Python — nothing else needs to
-be installed on your machine. Run all commands from the repo root.
+Docker provides PostgreSQL, PostGIS, GDAL, and Python. Run legacy `bin/<command>`
+wrappers from the repo root. The optional global launcher also needs host uv and
+runs from the caller's data folder.
 
 ## 5-Minute Setup
 

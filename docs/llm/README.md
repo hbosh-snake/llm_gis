@@ -1,5 +1,23 @@
 # LLM GIS Backend — Operator Notes
 
+## Global launcher
+
+For geodata tasks started outside the repository, use the installed `llm-gis`
+launcher with the caller's folder as the working directory and **host paths**.
+Read `docs/llm/GLOBAL_WORKFLOW.md` for the full workflow. The launcher chooses the
+Compose project, mounts inputs read-only, and writes requested artifacts directly
+to the selected host folder (default `./results/`). Do not cd into the repository
+for global commands. Legacy `bin/<command>` wrappers still use container paths.
+
+Use `query-sql --sql "SELECT ..."` or `--sql-file <host-path>` for actual in-chat
+PostGIS answers. It returns bounded rows and supports complete JSON/CSV exports;
+`run-sql` remains the mutating analysis-file command. Preserve metric units,
+source/layer choices, QC warnings and truncation in the answer.
+
+Run host Python through `uv run` (standalone launchers/installers use `uv run
+--script`). Host Docker tests live in `tests/host/` and are excluded by `bin/test`.
+
+
 ## Canonical paths
 
 | Path | Access | Purpose |
@@ -64,7 +82,7 @@ bin/export <output_path> --format gpkg|geojson \
   [--sql "SELECT ..."]
 ```
 - Either `--table` or `--sql` is required.
-- Output path must be under `/data/outgoing`.
+- Legacy outputs normally use `/data/outgoing`; global launcher outputs use the requested host folder.
 
 ### `bin/list-ingestions`
 Query `meta.ingestions` and return all ingests sorted newest-first.
@@ -182,4 +200,14 @@ bin/list-ingestions
 
 ## Ingest ID format
 
-`YYYYMMDDHHMMSS_<first10ofSHA256>` — e.g. `20260226174050_d9d4a9f8b2`
+`YYYYMMDDHHMMSS_<first10ofSHA256>_<random6hex>` — e.g. `20260226174050_d9d4a9f8b2`
+
+## query-sql
+
+`bin/query-sql --sql 'SELECT ...'` or `--sql-file /data/work/query.sql` returns
+read-only PostGIS rows. Through the global launcher, SQL files and output files
+use host paths. See [GLOBAL_WORKFLOW.md](GLOBAL_WORKFLOW.md#read-only-sql-result-contract)
+for limits and encodings. Options: --ingest-id, --statement-timeout (5min),
+--max-rows (100), --max-bytes (262144), --output, --format json|csv.
+SELECT/VALUES are supported; SHOW, EXPLAIN and batches are not. Full exports
+continue beyond the preview cap; CSV null/empty-string distinction is lossy.

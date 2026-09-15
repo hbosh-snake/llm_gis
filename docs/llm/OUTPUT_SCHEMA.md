@@ -54,7 +54,7 @@ Error codes (`llm_gis/errors.py`):
 
 | Key | Type | Meaning |
 |---|---|---|
-| `ingest_id` | string | The id assigned to this input, `YYYYMMDDHHMMSS_<hash10>` unless `--ingest-id` was given. |
+| `ingest_id` | string | The id assigned to this input, `YYYYMMDDHHMMSS_<hash10>_<random6hex>` unless `--ingest-id` was given. |
 | `input_path` | string | The path staged, as given. |
 | `input_hash` | string | SHA-256 of the input file (or of its directory contents, if a directory). |
 | `staging_dir` | string | `/data/work/staging/<ingest_id>/`. |
@@ -316,3 +316,32 @@ as a compatibility surface.
 rows only in the ones the run added. Cost scales with what the SQL created, not with what the
 schema already held, so a schema accumulating large intermediates is not rescanned on every
 call. A run that only modifies existing tables therefore reports an empty list.
+
+### `bin/llm-gis`
+
+Host launcher accepting a command plus host operands. Success preserves the
+backend command's JSON. Only known output operands become absolute; inputs and
+SQL keep their meaning. The per-call work root is an absolute host job directory.
+Host errors use the error envelope on stderr. Outputs are refused if already
+present, and Docker failures never become successful artifact responses.
+
+### `bin/query-sql`
+
+| Key | Type | Meaning |
+|---|---|---|
+| `engine` | string | postgis |
+| `columns` | array | Ordered column names, database types and encodings |
+| `rows` | array of arrays | Values in column order; duplicate names remain distinct |
+| `returned_row_count` | integer | Rows in this preview, not a full count |
+| `truncated` | boolean | Additional rows do not fit the row or byte budget |
+| `truncation_reason` | string or null | Row or byte limit when partial |
+| `omitted_columns` | array | Geometry/geography/binary columns excluded from rows |
+| `warnings` | array | Encoding changes such as non-finite values replaced by null |
+| `output_path` | string, optional | Complete JSON/CSV artifact, absolute through host launcher |
+| `output_format` | string, optional | json or csv |
+| `exported_row_count` | integer, optional | Count actually written to the complete artifact |
+
+The row byte budget sums UTF-8 serialized row bytes, excluding columns/envelope.
+Decimal values are strings; datetime/UUID are strings, null is preserved in JSON.
+Full file exports are independent of the preview limit. Backend query errors use
+the standard error envelope; non-read-only statements and batches are rejected.

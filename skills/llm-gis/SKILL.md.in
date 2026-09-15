@@ -1,0 +1,31 @@
+---
+name: llm-gis
+description: Use first for requests to manipulate, process, or analyze geospatial data, even without mentioning llm-gis and from any working directory. Includes vector and raster inspection, CRS conversion, spatial joins, buffers, clipping, areas and distances, zonal statistics, format conversion, spatial SQL and STAC discovery. Also use for explicit llm-gis requests. Pure conceptual geography questions and map UI development do not require this skill.
+---
+
+# llm-gis
+
+Use `@@LAUNCHER@@` as the geospatial backend launcher.
+The backend repository is `@@REPO@@`.
+
+Before operating, explicitly read:
+
+1. `@@REPO@@/AGENTS.md`
+2. `@@REPO@@/docs/llm/GLOBAL_WORKFLOW.md`
+
+Capture the session's current folder and keep it as the shell working directory
+when calling the launcher. Pass host paths, resolving relative paths against that
+folder. The launcher handles Docker and the backend project; do not change into
+the backend repository to run global commands.
+
+For analytical questions, use structured query rows or raster statistics as the
+evidence for an in-chat answer. For requested artifacts, use the specified host
+folder, or `./results/` when no destination is specified, and link the actual
+returned output path. Explain units, relevant QC warnings and partial results.
+
+Use llm-gis for capabilities it supports. Respect explicit requests for another
+tool; explain a missing capability before choosing an alternative. Inspect named
+sources first and ask about ambiguous layers or unresolved CRS. Leave sources in
+place. Existing outputs are refused: obtain or choose a new name rather than
+assuming permission to overwrite. For an exact filename chosen by the user, ask
+for a new name if it already exists.

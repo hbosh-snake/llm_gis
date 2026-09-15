@@ -7,6 +7,24 @@ description: Use when working in the llm-gis repo or handling its geospatial ing
 
 llm-gis is a headless geospatial backend. It ingests vector and raster data into PostGIS, runs spatial SQL, and exports results as GeoPackage or GeoJSON. Every operation is a non-interactive CLI command that returns JSON on stdout and runs through Docker.
 
+## Global launcher
+
+For geodata tasks started outside the repository, use the installed `llm-gis`
+launcher with the caller's folder as the working directory and **host paths**.
+Read `docs/llm/GLOBAL_WORKFLOW.md` for the full workflow. The launcher chooses the
+Compose project, mounts inputs read-only, and writes requested artifacts directly
+to the selected host folder (default `./results/`). Do not cd into the repository
+for global commands. Legacy `bin/<command>` wrappers still use container paths.
+
+Use `query-sql --sql "SELECT ..."` or `--sql-file <host-path>` for actual in-chat
+PostGIS answers. It returns bounded rows and supports complete JSON/CSV exports;
+`run-sql` remains the mutating analysis-file command. Preserve metric units,
+source/layer choices, QC warnings and truncation in the answer.
+
+Run host Python through `uv run` (standalone launchers/installers use `uv run
+--script`). Host Docker tests live in `tests/host/` and are excluded by `bin/test`.
+
+
 ## Core structure
 
 1. `bin/` shell wrappers are the only interface. Each runs `docker compose run --rm agent uv run llm-gis <cmd> "$@"`.
@@ -42,7 +60,7 @@ llm-gis is a headless geospatial backend. It ingests vector and raster data into
 
 - Column names are always lowercase after ingest.
 - Geometry column is `geom`; primary key is `fid`.
-- Analysis schemas are not auto-created.
+- run-sql creates the analysis schema; retain CREATE SCHEMA in self-contained SQL.
 - If CRS is `missing` or `suspicious`, pass `--src-crs EPSG:XXXX`.
 - Use a projected CRS for buffers, area, and distance work. For Europe, prefer `EPSG:3035` unless there is a better local CRS.
 

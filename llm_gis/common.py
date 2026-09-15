@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -67,7 +68,7 @@ def _sha256_for_file(path: Path) -> str:
 
 def make_ingest_id(source_hash: str) -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-    return f"{stamp}_{source_hash[:10]}"
+    return f"{stamp}_{source_hash[:10]}_{secrets.token_hex(3)}"
 
 
 def ensure_child_path(path: Path, root: Path) -> None:
@@ -283,6 +284,41 @@ def crs_status(crs_text: str | None, extent: dict[str, float] | None) -> tuple[s
 def incoming_root() -> Path:
     """Read-only source root, overridable for testing."""
     return Path(os.getenv("LLM_GIS_INCOMING_ROOT", "/data/incoming"))
+
+
+def allowed_source_roots() -> tuple[Path, ...]:
+    """Return the resolved roots from which local source paths may be read."""
+    configured = [incoming_root(), *(
+        Path(value)
+        for value in os.getenv("LLM_GIS_SOURCE_ROOTS", "").split(os.pathsep)
+        if value
+    )]
+    roots: list[Path] = []
+    for root in configured:
+        resolved = root.resolve()
+        if resolved == Path("/"):
+            raise GisError(
+                PATH_OUTSIDE_ROOT,
+                "Filesystem root is not an allowed source root",
+                "Set LLM_GIS_SOURCE_ROOTS to one or more specific source directories",
+            )
+        if resolved not in roots:
+            roots.append(resolved)
+    return tuple(roots)
+
+
+def ensure_source_path(path: Path) -> None:
+    """Ensure a local source is contained by one of the configured roots."""
+    resolved = path.resolve()
+    roots = allowed_source_roots()
+    if any(resolved == root or root in resolved.parents for root in roots):
+        return
+    roots_text = ", ".join(str(root) for root in roots)
+    raise GisError(
+        PATH_OUTSIDE_ROOT,
+        f"Path {path} is outside allowed source roots",
+        f"Use a path under one of: {roots_text}",
+    )
 
 
 def work_root() -> Path:
