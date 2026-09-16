@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-15-any-folder-workflow-design.md`.
 
+**Delivery status (2026-09-16):** Tasks 1–4 are implemented in 6d9ab11, with follow-up fixes in eb79508 and 8640a88. Task 5 evidence and client checks are recorded in [the acceptance report](../../reports/2026-09-16-any-folder-workflow.md). The original step checkboxes below are retained as planning history, not a current progress tracker.
+
 ## Preflight and branch
 
 Already performed during review revision:
@@ -213,7 +215,7 @@ User review sections 1–2: same-path launcher, five first-version tasks and exp
 Code notes 1–4: stage roots, per-job work, six-hex ingest suffix and output preflight in Tasks 1–2.
 Code note 5: read-only named-cursor query, limits, encodings and live protocol tests in Task 3, with the general execute claim corrected.
 Code notes 6–10: OUTPUT_SCHEMA, tests/host exclusion, real installed-skill diff, uv-only Python invocation and sequential command wiring in Tasks 1, 3–5.
-The only application change incorporated during plan review is the already-tested preview fix 50e7c01 merged into main. Any-folder implementation begins when the user requests execution.
+At plan-review time, the only application change was preview fix 50e7c01. Subsequent implementation and acceptance status are recorded at the top of this plan.
 
 ## Second-review verification
 

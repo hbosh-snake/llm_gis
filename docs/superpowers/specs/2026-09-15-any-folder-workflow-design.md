@@ -1,6 +1,6 @@
 # Any-folder workflow — first working version design
 
-Status: Revised to incorporate the user's 2026-09-15 review. This supersedes the earlier translated-path design. Any-folder implementation has not started. Preview fix 50e7c01 was tested, fast-forwarded into local main, and included by rebasing the feature branch.
+Status: Implemented in 6d9ab11, with launcher isolation and persistent Python fixes in 8640a88 and eb79508. Acceptance results are recorded in [the September 16 report](../../reports/2026-09-16-any-folder-workflow.md). This design incorporates the user's 2026-09-15 review and supersedes the earlier translated-path design.
 
 Implementation plan: [five-task plan](../plans/2026-09-15-any-folder-workflow.md).
 
