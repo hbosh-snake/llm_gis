@@ -40,6 +40,8 @@ def _ogr_command(
         str(input_path),
         "-nln",
         f"{schema}.{table}",
+        "-dim",
+        "XY",
         "-nlt",
         "PROMOTE_TO_MULTI",
         "-lco",

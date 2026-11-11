@@ -17,3 +17,4 @@ class OgrCommandTests(TestCase):
 
         self.assertIn("PROMOTE_TO_MULTI", command)
         self.assertEqual(command[command.index("-nlt") + 1], "PROMOTE_TO_MULTI")
+        self.assertEqual(command[command.index("-dim") + 1], "XY")

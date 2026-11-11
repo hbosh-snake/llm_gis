@@ -69,6 +69,44 @@ def test_a_missing_table_is_a_gis_error():
 
 
 @pytest.mark.live
+def test_invalid_polygonz_kml_is_repaired_during_ingest(monkeypatch, tmp_path):
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    monkeypatch.setenv("LLM_GIS_INCOMING_ROOT", str(incoming))
+    source = incoming / "invalid_polygonz.kml"
+    source.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark>
+<name>invalid PolygonZ</name><Polygon><outerBoundaryIs><LinearRing>
+<coordinates>8,45,0 8.1,45.1,0 8.1,45,0 8,45.1,0 8,45,0</coordinates>
+</LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>
+""",
+        encoding="utf-8",
+    )
+
+    report = ingest_vector(
+        input_path=source,
+        table="invalid_polygonz",
+        ingest_id=None,
+        src_crs=None,
+        dst_crs="EPSG:4326",
+        schema=None,
+    )
+    try:
+        assert report["feature_count"] == 1
+        assert report["invalid_before"] == 1
+        assert report["invalid_after"] == 0
+    finally:
+        with db_connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    psycopg.sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE;").format(
+                        psycopg.sql.Identifier(report["schema"])
+                    )
+                )
+
+
+@pytest.mark.live
 def test_export_attaches_qc_over_the_real_file(ingested, tmp_path):
     from llm_gis.exporter import export_result
 

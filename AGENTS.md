@@ -142,6 +142,7 @@ A check `result` of `not_evaluated` means it was skipped for want of context, no
 
 - **Column names are always lowercase.** `ogr2ogr` lowercases on load. Never quote mixed-case names in SQL.
 - **Geometry column is `geom`, primary key is `fid`.** These are set at ingest. Use them in all SQL.
+- **Vector ingest loads geometries as 2D (`ogr2ogr -dim XY`).** The validity repair uses `ST_Force2D(ST_MakeValid(...))`; preserve dimensional consistency, and keep regression coverage for invalid Z geometries such as KML `PolygonZ`.
 - **`run-sql` creates its analysis schema.** For self-contained SQL, still begin with `CREATE SCHEMA IF NOT EXISTS analysis_<ingest_id>;`
 - **CRS must be resolved before ingesting.** If `crs_status` is `missing` or `suspicious`, add `--src-crs EPSG:XXXX`.
 - **Use a projected CRS for metric work.** Buffer/area/distance need metric CRS. Use EPSG:3035 (Europe) or appropriate UTM.
